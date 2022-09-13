@@ -3,7 +3,7 @@
  *
  *  IEC 61850 server API for libiec61850.
  *
- *  Copyright 2013, 2014 Michael Zillgith
+ *  Copyright 2013-2022 Michael Zillgith
  *
  *  This file is part of libIEC61850.
  *
@@ -31,7 +31,7 @@
 extern "C" {
 #endif
 
-/** \defgroup server_api_group IEC 61850 server API
+/** \defgroup server_api_group IEC 61850/MMS server API
  *  @{
  */
 
@@ -39,7 +39,354 @@ extern "C" {
 #include "iec61850_dynamic_model.h"
 #include "iec61850_model.h"
 #include "hal_filesystem.h"
+#include "iso_connection_parameters.h"
 #include "iec61850_config_file_parser.h"
+
+/**
+ * \brief Configuration object to configure IEC 61850 stack features
+ */
+typedef struct sIedServerConfig* IedServerConfig;
+
+struct sIedServerConfig
+{
+    /** size of the report buffer associated with a buffered report control block */
+    int reportBufferSize;
+
+    /** size of the report buffer associated with an unbuffered report control block */
+    int reportBufferSizeURCBs;
+
+    /** Base path (directory where the file service serves files */
+    char* fileServiceBasepath;
+
+    /** when true (default) enable MMS file service */
+    bool enableFileService;
+
+    /** when true (default) enable dynamic data set services for MMS */
+    bool enableDynamicDataSetService;
+
+    /** the maximum number of allowed association specific data sets */
+    int maxAssociationSpecificDataSets;
+
+    /** the maximum number of allowed domain specific data sets */
+    int maxDomainSpecificDataSets;
+
+    /** maximum number of data set entries of dynamic data sets */
+    int maxDataSetEntries;
+
+    /** when true (default) enable log service */
+    bool enableLogService;
+
+    /** when true (default) the integrated GOOSE publisher is used */
+    bool useIntegratedGoosePublisher;
+
+    /** IEC 61850 edition (0 = edition 1, 1 = edition 2, 2 = edition 2.1, ...) */
+    uint8_t edition;
+
+    /** maximum number of MMS (TCP) connections */
+    int maxMmsConnections;
+
+    /** enable EditSG service (default: true) */
+    bool enableEditSG;
+
+    /** enable visibility of SGCB.ResvTms (default: true) */
+    bool enableResvTmsForSGCB;
+
+    /** BRCB has resvTms attribute - only edition 2 (default: true) */
+    bool enableResvTmsForBRCB;
+
+    /** RCB has owner attribute (default: true) */
+    bool enableOwnerForRCB;
+
+    /** integrity report start times will by synchronized with straight numbers (default: false) */
+    bool syncIntegrityReportTimes;
+};
+
+/**
+ * \brief Create a new configuration object
+ *
+ * \return a new configuration object with default configuration values
+ */
+LIB61850_API IedServerConfig
+IedServerConfig_create(void);
+
+/**
+ * \brief Destroy the configuration object
+ */
+LIB61850_API void
+IedServerConfig_destroy(IedServerConfig self);
+
+/**
+ * \brief Set the IEC 61850 standard edition to use (default is edition 2)
+ *
+ * \param edition IEC_61850_EDITION_1, IEC_61850_EDITION_2, or IEC_61850_EDITION_2_1
+ */
+LIB61850_API void
+IedServerConfig_setEdition(IedServerConfig self, uint8_t edition);
+
+/**
+ * \brief Get the configued IEC 61850 standard edition
+ *
+ * \returns IEC_61850_EDITION_1, IEC_61850_EDITION_2, or IEC_61850_EDITION_2_1
+ */
+LIB61850_API uint8_t
+IedServerConfig_getEdition(IedServerConfig self);
+
+/**
+ * \brief Set the report buffer size for buffered reporting
+ *
+ * \param reportBufferSize the buffer size for each buffered report control block
+ */
+LIB61850_API void
+IedServerConfig_setReportBufferSize(IedServerConfig self, int reportBufferSize);
+
+/**
+ * \brief Gets the report buffer size for buffered reporting
+ *
+ * \return the buffer size for each buffered report control block
+ */
+LIB61850_API int
+IedServerConfig_getReportBufferSize(IedServerConfig self);
+
+/**
+ * \brief Set the report buffer size for unbuffered reporting
+ *
+ * \param reportBufferSize the buffer size for each unbuffered report control block
+ */
+LIB61850_API void
+IedServerConfig_setReportBufferSizeForURCBs(IedServerConfig self, int reportBufferSize);
+
+/**
+ * \brief Gets the report buffer size for unbuffered reporting
+ *
+ * \return the buffer size for each unbuffered report control block
+ */
+LIB61850_API int
+IedServerConfig_getReportBufferSizeForURCBs(IedServerConfig self);
+
+/**
+ * \brief Set the maximum number of MMS (TCP) connections the server accepts
+ *
+ * NOTE: Parameter has to be smaller than CONFIG_MAXIMUM_TCP_CLIENT_CONNECTIONS if
+ * CONFIG_MAXIMUM_TCP_CLIENT_CONNECTIONS != -1
+ *
+ * \param maxConnection maximum number of TCP connections
+ */
+LIB61850_API void
+IedServerConfig_setMaxMmsConnections(IedServerConfig self, int maxConnections);
+
+/**
+ * \brief Get the maximum number of MMS (TCP) connections the server accepts
+ *
+ * \return maximum number of TCP connections
+ */
+LIB61850_API int
+IedServerConfig_getMaxMmsConnections(IedServerConfig self);
+
+/**
+ * \brief Enable synchronized integrity report times
+ *
+ * NOTE: When this flag is enabled the integrity report generation times are
+ * aligned with the UTC epoch. Then the unix time stamps are straight multiples of the
+ * integrity interval.
+ *
+ * \param enable when true synchronized integrity report times are enabled
+ */
+LIB61850_API void
+IedServerConfig_setSyncIntegrityReportTimes(IedServerConfig self, bool enable);
+
+/**
+ * \brief Check if synchronized integrity report times are enabled
+ *
+ * NOTE: When this flag is enabled the integrity report generation times are
+ * aligned with the UTC epoch. Then the unix time stamps are straight multiples of the
+ * integrity interval.
+ *
+ * \return true, when enabled, false otherwise
+ */
+LIB61850_API bool
+IedServerConfig_getSyncIntegrityReportTimes(IedServerConfig self);
+
+/**
+ * \brief Set the basepath of the file services
+ *
+ * NOTE: the basepath specifies the local directory that is served by MMS file services
+ *
+ * \param basepath new file service base path
+ */
+LIB61850_API void
+IedServerConfig_setFileServiceBasePath(IedServerConfig self, const char* basepath);
+
+/**
+ * \brief Get the basepath of the file services
+ */
+LIB61850_API const char*
+IedServerConfig_getFileServiceBasePath(IedServerConfig self);
+
+/**
+ * \brief Enable/disable the MMS file service support
+ *
+ * \param[in] enable set true to enable the file services, otherwise false
+ */
+LIB61850_API void
+IedServerConfig_enableFileService(IedServerConfig self, bool enable);
+
+/**
+ * \brief Is the MMS file service enabled or disabled
+ *
+ * \return true if enabled, false otherwise
+ */
+LIB61850_API bool
+IedServerConfig_isFileServiceEnabled(IedServerConfig self);
+
+/**
+ * \brief Enable/disable the dynamic data set service for MMS
+ *
+ * \param[in] enable set true to enable dynamic data set service, otherwise false
+ */
+LIB61850_API void
+IedServerConfig_enableDynamicDataSetService(IedServerConfig self, bool enable);
+
+/**
+ * \brief Is the dynamic data set service for MMS enabled or disabled
+ *
+ * \return true if enabled, false otherwise
+ */
+LIB61850_API bool
+IedServerConfig_isDynamicDataSetServiceEnabled(IedServerConfig self);
+
+/**
+ * \brief Set the maximum allowed number of association specific (non-permanent) data sets
+ *
+ * NOTE: This specifies the maximum number of non-permanent data sets per connection. When
+ * the connection is closed these data sets are deleted automatically.
+ *
+ * \param maxDataSets maximum number of allowed data sets.
+ */
+LIB61850_API void
+IedServerConfig_setMaxAssociationSpecificDataSets(IedServerConfig self, int maxDataSets);
+
+/**
+ * \brief Get the maximum allowed number of association specific (non-permanent) data sets
+ *
+ * \return maximum number of allowed data sets.
+ */
+LIB61850_API int
+IedServerConfig_getMaxAssociationSpecificDataSets(IedServerConfig self);
+
+/**
+ * \brief Set the maximum allowed number of domain specific (permanent) data sets
+ *
+ * \param maxDataSets maximum number of allowed data sets.
+ */
+LIB61850_API void
+IedServerConfig_setMaxDomainSpecificDataSets(IedServerConfig self, int maxDataSets);
+
+/**
+ * \brief Get the maximum allowed number of domain specific (permanent) data sets
+ *
+ * \return maximum number of allowed data sets.
+ */
+LIB61850_API int
+IedServerConfig_getMaxDomainSpecificDataSets(IedServerConfig self);
+
+/**
+ * \brief Set the maximum number of entries in dynamic data sets
+ *
+ * NOTE: this comprises the base data set entries (can be simple or complex variables).
+ * When the client tries to create a data set with more member the request will be
+ * rejected and the data set will not be created.
+ *
+ * \param maxDataSetEntries the maximum number of entries allowed in a data set
+ */
+LIB61850_API void
+IedServerConfig_setMaxDataSetEntries(IedServerConfig self, int maxDataSetEntries);
+
+/**
+ * \brief Get the maximum number of entries in dynamic data sets
+ *
+ * \return the maximum number of entries allowed in a data sets
+ */
+LIB61850_API int
+IedServerConfig_getMaxDatasSetEntries(IedServerConfig self);
+
+/**
+ * \brief Enable/disable the log service for MMS
+ *
+ * \param[in] enable set true to enable log service, otherwise false
+ */
+LIB61850_API void
+IedServerConfig_enableLogService(IedServerConfig self, bool enable);
+
+/**
+ * \brief Enable/disable the EditSG service to allow clients to change setting groups (default is enabled)
+ *
+ * NOTE: When disabled SGCB.ResvTms is not available online and the setting of \ref IedServerConfig_enableResvTmsForSGCB
+ * is ignored.
+ *
+ * \param[in] enable set true to enable, otherwise false (default value it true)
+ */
+LIB61850_API void
+IedServerConfig_enableEditSG(IedServerConfig self, bool enable);
+
+/**
+ * \brief Enable/disable the SGCB.ResvTms when EditSG is enabled
+ *
+ * NOTE: When EditSG is disabled (see \ref IedServerConfig_enableEditSG) then this setting is ignored.
+ *
+ * \param[in] enable set true to enable, otherwise false (default value it true)
+ */
+LIB61850_API void
+IedServerConfig_enableResvTmsForSGCB(IedServerConfig self, bool enable);
+
+/**
+ * \brief Enable/disable the presence of BRCB.ResvTms (default value is true)
+ *
+ * \param[in] enable set true to enable, otherwise false
+ */
+LIB61850_API void
+IedServerConfig_enableResvTmsForBRCB(IedServerConfig self, bool enable);
+
+/**
+ * \brief ResvTms for BRCB enabled (visible)
+ *
+ * \return true if enabled, false otherwise
+ */
+LIB61850_API  bool
+IedServerConfig_isResvTmsForBRCBEnabled(IedServerConfig self);
+
+/**
+ * \brief Enable/disable the presence of owner in report control blocks (default value is false);
+ *
+ * \param[in] enable set true to enable, otherwise false
+ */
+LIB61850_API void
+IedServerConfig_enableOwnerForRCB(IedServerConfig self, bool enable);
+
+/**
+ * \brief Owner for RCBs enabled (visible)
+ *
+ * \return true if enabled, false otherwise
+ */
+LIB61850_API  bool
+IedServerConfig_isOwnerForRCBEnabled(IedServerConfig self);
+
+/**
+ * \brief Enable/disable using the integrated GOOSE publisher for configured GoCBs
+ *
+ * This is enabled by default. Disable it when you want to use a separate GOOSE publisher
+ *
+ * \param[in] enable set true to enable the integrated GOOSE publisher, otherwise false
+ */
+LIB61850_API void
+IedServerConfig_useIntegratedGoosePublisher(IedServerConfig self, bool enable);
+
+/**
+ * \brief Is the log service for MMS enabled or disabled
+ *
+ * \return true if enabled, false otherwise
+ */
+LIB61850_API bool
+IedServerConfig_isLogServiceEnabled(IedServerConfig self);
 
 /**
  * An opaque handle for an IED server instance
@@ -65,7 +412,7 @@ typedef struct sClientConnection* ClientConnection;
  *
  * \return the new IedServer instance
  */
-IedServer
+LIB61850_API IedServer
 IedServer_create(IedModel* dataModel);
 
 /**
@@ -76,25 +423,61 @@ IedServer_create(IedModel* dataModel);
  *
  * \return the new IedServer instance
  */
-IedServer
+LIB61850_API IedServer
 IedServer_createWithTlsSupport(IedModel* dataModel, TLSConfiguration tlsConfiguration);
+
+/**
+ * \brief Create new new IedServer with extended configurations parameters
+ *
+ * \param dataModel reference to the IedModel data structure to be used as IEC 61850 data model of the device
+ * \param tlsConfiguration TLS configuration object, or NULL to not use TLS
+ * \param serverConfiguration IED server configuration object for advanced server configuration
+ */
+LIB61850_API IedServer
+IedServer_createWithConfig(IedModel* dataModel, TLSConfiguration tlsConfiguration, IedServerConfig serverConfiguration);
 
 /**
  * \brief Destroy an IedServer instance and release all resources (memory, TCP sockets)
  *
  * \param self the instance of IedServer to operate on.
  */
-void
+LIB61850_API void
 IedServer_destroy(IedServer self);
+
+/**
+ * \brief Add a new local access point (server will listen to provided IP/port combination)
+ *
+ * \param self the instance of IedServer to operate on.
+ * \param ipAddr the local IP address to listen on
+ * \param tcpPort the local TCP port to listen on or -1 to use the standard TCP port
+ * \oaram tlsConfiguration the TLS configuration or NULL when TLS is not used for this access point
+ *
+ * \return true in case of success, false otherwise
+ */
+LIB61850_API bool
+IedServer_addAccessPoint(IedServer self, const char* ipAddr, int tcpPort, TLSConfiguration tlsConfiguration);
 
 /**
  * \brief Set the local IP address to listen on
  *
- *  \param self the IedServer instance
- *  \param localIpAddress the local IP address as C string (an internal copy will be created)
+ * \param self the IedServer instance
+ * \param localIpAddress the local IP address as C string (an internal copy will be created)
  */
-void
+LIB61850_API void
 IedServer_setLocalIpAddress(IedServer self, const char* localIpAddress);
+
+/**
+ * \brief Set the identify for the MMS identify service
+ *
+ * CONFIG_IEC61850_SUPPORT_SERVER_IDENTITY required
+ *
+ * \param self the IedServer instance
+ * \param vendor the IED vendor name
+ * \param model the IED model name
+ * \param revision the IED revision/version number
+ */
+LIB61850_API void
+IedServer_setServerIdentity(IedServer self, const char* vendor, const char* model, const char* revision);
 
 /**
  * \brief Set the virtual filestore basepath for the MMS file services
@@ -106,7 +489,7 @@ IedServer_setLocalIpAddress(IedServer self, const char* localIpAddress);
  * \param self the IedServer instance
  * \param basepath the new virtual filestore basepath
  */
-void
+LIB61850_API void
 IedServer_setFilestoreBasepath(IedServer self, const char* basepath);
 
 /**
@@ -115,7 +498,7 @@ IedServer_setFilestoreBasepath(IedServer self, const char* basepath);
  * \param self the instance of IedServer to operate on.
  * \param tcpPort the TCP port the server is listening (-1 for using the default MMS or secure MMS port)
  */
-void
+LIB61850_API void
 IedServer_start(IedServer self, int tcpPort);
 
 /**
@@ -123,7 +506,7 @@ IedServer_start(IedServer self, int tcpPort);
  *
  * \param self the instance of IedServer to operate on.
  */
-void
+LIB61850_API void
 IedServer_stop(IedServer self);
 
 /**
@@ -136,7 +519,7 @@ IedServer_stop(IedServer self);
  * \param self the instance of IedServer to operate on.
  * \param tcpPort the TCP port the server is listening (-1 for using the default MMS or secure MMS port)
  */
-void
+LIB61850_API void
 IedServer_startThreadless(IedServer self, int tcpPort);
 
 /**
@@ -152,7 +535,7 @@ IedServer_startThreadless(IedServer self, int tcpPort);
  *
  * \return 0 if no connection is ready; otherwise at least one connection is ready
  */
-int
+LIB61850_API int
 IedServer_waitReady(IedServer self, unsigned int timeoutMs);
 
 /**
@@ -164,7 +547,7 @@ IedServer_waitReady(IedServer self, unsigned int timeoutMs);
  *
  * \param self the instance of IedServer to operate on.
  */
-void
+LIB61850_API void
 IedServer_processIncomingData(IedServer self);
 
 /**
@@ -175,7 +558,7 @@ IedServer_processIncomingData(IedServer self);
  *
  * \param self the instance of IedServer to operate on.
  */
-void
+LIB61850_API void
 IedServer_performPeriodicTasks(IedServer self);
 
 /**
@@ -183,7 +566,7 @@ IedServer_performPeriodicTasks(IedServer self);
  *
  * \param self the instance of IedServer to operate on.
  */
-void
+LIB61850_API void
 IedServer_stopThreadless(IedServer self);
 
 /**
@@ -193,7 +576,7 @@ IedServer_stopThreadless(IedServer self);
  *
  * \return the IedModel* instance of the server
  */
-IedModel*
+LIB61850_API IedModel*
 IedServer_getDataModel(IedServer self);
 
 /**
@@ -203,8 +586,18 @@ IedServer_getDataModel(IedServer self);
  *
  * \return true if IedServer instance is listening for client connections
  */
-bool
+LIB61850_API bool
 IedServer_isRunning(IedServer self);
+
+/**
+ * \brief Get number of open MMS connections
+ *
+ * \param self the instance of IedServer to operate on
+ *
+ * \return the number of open and accepted MMS connections
+ */
+LIB61850_API int
+IedServer_getNumberOfOpenConnections(IedServer self);
 
 /**
  * \brief Get access to the underlying MmsServer instance.
@@ -216,7 +609,7 @@ IedServer_isRunning(IedServer self);
  *
  * \return MmsServer instance that is used by the IedServer
  */
-MmsServer
+LIB61850_API MmsServer
 IedServer_getMmsServer(IedServer self);
 
 /**
@@ -227,9 +620,11 @@ IedServer_getMmsServer(IedServer self);
  * then configured GOOSE control blocks keep inactive until a MMS client enables
  * them by writing to the GOOSE control block.
  *
+ * Note: This function has no effect when CONFIG_INCLUDE_GOOSE_SUPPORT is not set.
+ *
  * \param self the instance of IedServer to operate on.
  */
-void
+LIB61850_API void
 IedServer_enableGoosePublishing(IedServer self);
 
 /**
@@ -238,9 +633,11 @@ IedServer_enableGoosePublishing(IedServer self);
  * This will set the GoEna attribute of all configured GOOSE control blocks
  * to false. This will stop GOOSE transmission.
  *
+ * Note: This function has no effect when CONFIG_INCLUDE_GOOSE_SUPPORT is not set.
+ *
  * \param self the instance of IedServer to operate on.
  */
-void
+LIB61850_API void
 IedServer_disableGoosePublishing(IedServer self);
 
 /**
@@ -250,11 +647,45 @@ IedServer_disableGoosePublishing(IedServer self);
  * default interface ID from stack_config.h is used. Note the interface ID is operating system
  * specific!
  *
+ * Note: This function has no effect when CONFIG_INCLUDE_GOOSE_SUPPORT is not set.
+ *
  * \param self the instance of IedServer to operate on.
  * \param interfaceId the ID of the ethernet interface to be used for GOOSE publishing
  */
-void
+LIB61850_API void
 IedServer_setGooseInterfaceId(IedServer self, const char* interfaceId);
+
+/**
+ * \brief Set the Ethernet interface to be used by GOOSE publishing
+ *
+ * This function can be used to set the GOOSE interface ID forG all CBs (parameter ln = NULL) or for
+ * a specific GCB specified by the logical node instance and the GCB name.
+ *
+ * Note: This function has no effect when CONFIG_INCLUDE_GOOSE_SUPPORT is not set.
+ *
+ * \param self the instance of IedServer to operate on.
+ * \param ln the logical node that contains the GCB or NULL to set the ethernet interface ID for all GCBs
+ * \param gcbName the name (not object reference!) of the GCB
+ * \param interfaceId the ID of the ethernet interface to be used for GOOSE publishing
+ */
+LIB61850_API void
+IedServer_setGooseInterfaceIdEx(IedServer self, LogicalNode* ln, const char* gcbName, const char* interfaceId);
+
+/**
+ * \brief Enable/disable the use of VLAN tags in GOOSE messages
+ *
+ * This function can be used to enable/disable VLAN tagging for all GCBs (parameter ln = NULL) or for
+ * a specific GCB specified by the logical node instance and the GCB name.
+ *
+ * Note: This function has no effect when CONFIG_INCLUDE_GOOSE_SUPPORT is not set.
+ *
+ * \param self the instance of IedServer to operate on
+ * \param ln the logical node that contains the GCB or NULL to enable/disable VLAN tagging for all GCBs
+ * \param gcbName the name (not object reference!) of the GCB
+ * \param useVlanTag true to enable VLAN tagging, false otherwise
+ */
+LIB61850_API void
+IedServer_useGooseVlanTag(IedServer self, LogicalNode* ln, const char* gcbName, bool useVlanTag);
 
 /**@}*/
 
@@ -276,7 +707,7 @@ IedServer_setGooseInterfaceId(IedServer self, const char* interfaceId);
  * \param authenticator the user provided authenticator callback
  * \param authenticatorParameter user provided parameter that is passed to the authenticator
  */
-void
+LIB61850_API void
 IedServer_setAuthenticator(IedServer self, AcseAuthenticator authenticator, void* authenticatorParameter);
 
 
@@ -290,8 +721,20 @@ IedServer_setAuthenticator(IedServer self, AcseAuthenticator authenticator, void
  * \param self the ClientConnection instance
  * \return peer address as C string.
  */
-const char*
+LIB61850_API const char*
 ClientConnection_getPeerAddress(ClientConnection self);
+
+/**
+ * \brief get the local address of this connection as string
+ *
+ * Note: the returned string is only valid as long as the client connection exists. It is save to use
+ * the string inside of the connection indication callback function.
+ *
+ * \param self the ClientConnection instance
+ * \return local address as C string.
+ */
+LIB61850_API const char*
+ClientConnection_getLocalAddress(ClientConnection self);
 
 /**
  * \brief Get the security token associated with this connection
@@ -303,7 +746,7 @@ ClientConnection_getPeerAddress(ClientConnection self);
  *
  * \return the security token or NULL
  */
-void*
+LIB61850_API void*
 ClientConnection_getSecurityToken(ClientConnection self);
 
 /**
@@ -324,7 +767,7 @@ typedef void (*IedConnectionIndicationHandler) (IedServer self, ClientConnection
  * \param handler the user provided callback function
  * \param parameter a user provided parameter that is passed to the callback function.
  */
-void
+LIB61850_API void
 IedServer_setConnectionIndicationHandler(IedServer self, IedConnectionIndicationHandler handler, void* parameter);
 
 
@@ -338,8 +781,10 @@ IedServer_setConnectionIndicationHandler(IedServer self, IedConnectionIndication
 
 
 /**
- * \brief Lock the MMS server data model.
+ * \brief Lock the data model for data update.
  *
+ * This function should be called before the data model is updated.
+ * After updating the data model the function \ref IedServer_unlockDataModel should be called.
  * Client requests will be postponed until the lock is removed.
  *
  * NOTE: This method should never be called inside of a library callback function. In the context of
@@ -348,18 +793,18 @@ IedServer_setConnectionIndicationHandler(IedServer self, IedConnectionIndication
  *
  * \param self the instance of IedServer to operate on.
  */
-void
+LIB61850_API void
 IedServer_lockDataModel(IedServer self);
 
 /**
- * \brief Unlock the MMS server data model and process pending client requests.
+ * \brief Unlock the data model and process pending client requests.
  *
  * NOTE: This method should never be called inside of a library callback function. In the context of
  * a library callback the data model is always already locked!
  *
  * \param self the instance of IedServer to operate on.
  */
-void
+LIB61850_API void
 IedServer_unlockDataModel(IedServer self);
 
 /**
@@ -374,7 +819,7 @@ IedServer_unlockDataModel(IedServer self);
  *
  * \return MmsValue object of the MMS Named Variable or NULL if the value does not exist.
  */
-MmsValue*
+LIB61850_API MmsValue*
 IedServer_getAttributeValue(IedServer self, DataAttribute* dataAttribute);
 
 /**
@@ -388,7 +833,7 @@ IedServer_getAttributeValue(IedServer self, DataAttribute* dataAttribute);
  *
  * \return true or false
  */
-bool
+LIB61850_API bool
 IedServer_getBooleanAttributeValue(IedServer self, const DataAttribute* dataAttribute);
 
 /**
@@ -402,7 +847,7 @@ IedServer_getBooleanAttributeValue(IedServer self, const DataAttribute* dataAttr
  *
  * \return the value as 32 bit integer
  */
-int32_t
+LIB61850_API int32_t
 IedServer_getInt32AttributeValue(IedServer self, const DataAttribute* dataAttribute);
 
 /**
@@ -416,7 +861,7 @@ IedServer_getInt32AttributeValue(IedServer self, const DataAttribute* dataAttrib
  *
  * \return the value as 64 bit integer
  */
-int64_t
+LIB61850_API int64_t
 IedServer_getInt64AttributeValue(IedServer self, const DataAttribute* dataAttribute);
 
 /**
@@ -430,7 +875,7 @@ IedServer_getInt64AttributeValue(IedServer self, const DataAttribute* dataAttrib
  *
  * \return the value as 32 bit unsigned integer
  */
-uint32_t
+LIB61850_API uint32_t
 IedServer_getUInt32AttributeValue(IedServer self, const DataAttribute* dataAttribute);
 
 /**
@@ -444,7 +889,7 @@ IedServer_getUInt32AttributeValue(IedServer self, const DataAttribute* dataAttri
  *
  * \return the value as 32 bit float
  */
-float
+LIB61850_API float
 IedServer_getFloatAttributeValue(IedServer self, const DataAttribute* dataAttribute);
 
 /**
@@ -456,9 +901,9 @@ IedServer_getFloatAttributeValue(IedServer self, const DataAttribute* dataAttrib
  * \param self the instance of IedServer to operate on.
  * \param dataAttribute the data attribute handle
  *
- * \return the value as 32 bit float
+ * \return the value as 64 bit unsigned integer representing the time in milliseconds since Epoch
  */
-uint64_t
+LIB61850_API uint64_t
 IedServer_getUTCTimeAttributeValue(IedServer self, const DataAttribute* dataAttribute);
 
 /**
@@ -476,7 +921,7 @@ IedServer_getUTCTimeAttributeValue(IedServer self, const DataAttribute* dataAttr
  *
  * \return the value a 32 bit integer.
  */
-uint32_t
+LIB61850_API uint32_t
 IedServer_getBitStringAttributeValue(IedServer self, const DataAttribute* dataAttribute);
 
 /**
@@ -490,12 +935,11 @@ IedServer_getBitStringAttributeValue(IedServer self, const DataAttribute* dataAt
  *
  * \return the value as a C string (null terminated string)
  */
-const char*
+LIB61850_API const char*
 IedServer_getStringAttributeValue(IedServer self, const DataAttribute* dataAttribute);
 
-
 /**
- * \brief Get the MmsValue object related to a FunctionalConstrainedData object
+ * \brief Get the MmsValue object related to a functional constrained data object (FCD)
  *
  * Get the MmsValue from the server cache that is associated with the Functional Constrained Data (FCD)
  * object that is specified by the DataObject and the given Function Constraint (FC).
@@ -509,7 +953,7 @@ IedServer_getStringAttributeValue(IedServer self, const DataAttribute* dataAttri
  *
  * \return MmsValue object cached by the server.
  */
-MmsValue*
+LIB61850_API MmsValue*
 IedServer_getFunctionalConstrainedData(IedServer self, DataObject* dataObject, FunctionalConstraint fc);
 
 /**
@@ -528,7 +972,7 @@ IedServer_getFunctionalConstrainedData(IedServer self, DataObject* dataObject, F
  * \param dataAttribute the data attribute handle
  * \param value MmsValue object used to update the value cached by the server.
  */
-void
+LIB61850_API void
 IedServer_updateAttributeValue(IedServer self, DataAttribute* dataAttribute, MmsValue* value);
 
 /**
@@ -543,7 +987,7 @@ IedServer_updateAttributeValue(IedServer self, DataAttribute* dataAttribute, Mms
  * \param dataAttribute the data attribute handle
  * \param value the new float value of the data attribute.
  */
-void
+LIB61850_API void
 IedServer_updateFloatAttributeValue(IedServer self, DataAttribute* dataAttribute, float value);
 
 /**
@@ -558,7 +1002,7 @@ IedServer_updateFloatAttributeValue(IedServer self, DataAttribute* dataAttribute
  * \param dataAttribute the data attribute handle
  * \param value the new integer value of the data attribute.
  */
-void
+LIB61850_API void
 IedServer_updateInt32AttributeValue(IedServer self, DataAttribute* dataAttribute, int32_t value);
 
 /**
@@ -573,8 +1017,8 @@ IedServer_updateInt32AttributeValue(IedServer self, DataAttribute* dataAttribute
  * \param dataAttribute the data attribute handle
  * \param value the new Dbpos value of the data attribute.
  */
-void
-IedServer_udpateDbposValue(IedServer self, DataAttribute* dataAttribute, Dbpos value);
+LIB61850_API void
+IedServer_updateDbposValue(IedServer self, DataAttribute* dataAttribute, Dbpos value);
 
 /**
  * \brief Update the value of an IEC 61850 integer64 data attribute (like BCR actVal)
@@ -588,7 +1032,7 @@ IedServer_udpateDbposValue(IedServer self, DataAttribute* dataAttribute, Dbpos v
  * \param dataAttribute the data attribute handle
  * \param value the new 64 bit integer value of the data attribute.
  */
-void
+LIB61850_API void
 IedServer_updateInt64AttributeValue(IedServer self, DataAttribute* dataAttribute, int64_t value);
 
 /**
@@ -603,7 +1047,7 @@ IedServer_updateInt64AttributeValue(IedServer self, DataAttribute* dataAttribute
  * \param dataAttribute the data attribute handle
  * \param value the new unsigned integer value of the data attribute.
  */
-void
+LIB61850_API void
 IedServer_updateUnsignedAttributeValue(IedServer self, DataAttribute* dataAttribute, uint32_t value);
 
 /**
@@ -618,7 +1062,7 @@ IedServer_updateUnsignedAttributeValue(IedServer self, DataAttribute* dataAttrib
  * \param dataAttribute the data attribute handle
  * \param value the new bit string integer value of the data attribute.
  */
-void
+LIB61850_API void
 IedServer_updateBitStringAttributeValue(IedServer self, DataAttribute* dataAttribute, uint32_t value);
 
 /**
@@ -633,7 +1077,7 @@ IedServer_updateBitStringAttributeValue(IedServer self, DataAttribute* dataAttri
  * \param dataAttribute the data attribute handle
  * \param value the new boolean value of the data attribute.
  */
-void
+LIB61850_API void
 IedServer_updateBooleanAttributeValue(IedServer self, DataAttribute* dataAttribute, bool value);
 
 /**
@@ -648,7 +1092,7 @@ IedServer_updateBooleanAttributeValue(IedServer self, DataAttribute* dataAttribu
  * \param dataAttribute the data attribute handle
  * \param value the new visible string value of the data attribute.
  */
-void
+LIB61850_API void
 IedServer_updateVisibleStringAttributeValue(IedServer self, DataAttribute* dataAttribute, char *value);
 
 /**
@@ -663,7 +1107,7 @@ IedServer_updateVisibleStringAttributeValue(IedServer self, DataAttribute* dataA
  * \param dataAttribute the data attribute handle
  * \param value the new UTC time value of the data attribute as a ms timestamp
  */
-void
+LIB61850_API void
 IedServer_updateUTCTimeAttributeValue(IedServer self, DataAttribute* dataAttribute, uint64_t value);
 
 /**
@@ -678,7 +1122,7 @@ IedServer_updateUTCTimeAttributeValue(IedServer self, DataAttribute* dataAttribu
  * \param dataAttribute the data attribute handle
  * \param value the new UTC time value of the data attribute as a Timestamp
  */
-void
+LIB61850_API void
 IedServer_updateTimestampAttributeValue(IedServer self, DataAttribute* dataAttribute, Timestamp* timestamp);
 
 /**
@@ -695,13 +1139,13 @@ IedServer_updateTimestampAttributeValue(IedServer self, DataAttribute* dataAttri
  * \param quality the new quality value
  *
  */
-void
+LIB61850_API void
 IedServer_updateQuality(IedServer self, DataAttribute* dataAttribute, Quality quality);
 
 /**@}*/
 
 
-void
+LIB61850_API void
 IedServer_setLogStorage(IedServer self, const char* logRef, LogStorage logStorage);
 
 /**
@@ -720,7 +1164,7 @@ IedServer_setLogStorage(IedServer self, const char* logRef, LogStorage logStorag
  * \param sgcb the handle of the setting group control block of the setting group
  * \param newActiveSg the number of the new active setting group
  */
-void
+LIB61850_API void
 IedServer_changeActiveSettingGroup(IedServer self, SettingGroupControlBlock* sgcb, uint8_t newActiveSg);
 
 /**
@@ -731,7 +1175,7 @@ IedServer_changeActiveSettingGroup(IedServer self, SettingGroupControlBlock* sgc
  *
  * \return the number of the active setting group
  */
-uint8_t
+LIB61850_API uint8_t
 IedServer_getActiveSettingGroup(IedServer self, SettingGroupControlBlock* sgcb);
 
 /**
@@ -760,7 +1204,7 @@ typedef bool (*ActiveSettingGroupChangedHandler) (void* parameter, SettingGroupC
  * \param handler the user provided callback handler.
  * \param parameter a user provided parameter that is passed to the control handler.
  */
-void
+LIB61850_API void
 IedServer_setActiveSettingGroupChangedHandler(IedServer self, SettingGroupControlBlock* sgcb,
         ActiveSettingGroupChangedHandler handler, void* parameter);
 
@@ -792,7 +1236,7 @@ typedef bool (*EditSettingGroupChangedHandler) (void* parameter, SettingGroupCon
  * \param handler the user provided callback handler.
  * \param parameter a user provided parameter that is passed to the control handler.
  */
-void
+LIB61850_API void
 IedServer_setEditSettingGroupChangedHandler(IedServer self, SettingGroupControlBlock* sgcb,
         EditSettingGroupChangedHandler handler, void* parameter);
 
@@ -816,7 +1260,7 @@ typedef void (*EditSettingGroupConfirmationHandler) (void* parameter, SettingGro
  * \param handler the user provided callback handler.
  * \param parameter a user provided parameter that is passed to the control handler.
  */
-void
+LIB61850_API void
 IedServer_setEditSettingGroupConfirmationHandler(IedServer self, SettingGroupControlBlock* sgcb,
         EditSettingGroupConfirmationHandler handler, void* parameter);
 
@@ -832,25 +1276,118 @@ IedServer_setEditSettingGroupConfirmationHandler(IedServer self, SettingGroupCon
  * \brief result code for ControlPerformCheckHandler
  */
 typedef enum {
-    CONTROL_ACCEPTED = -1, /** check passed */
-    CONTROL_HARDWARE_FAULT = 1, /** check failed due to hardware fault */
-    CONTROL_TEMPORARILY_UNAVAILABLE = 2, /** control is already selected or operated */
-    CONTROL_OBJECT_ACCESS_DENIED = 3, /** check failed due to access control reason - access denied for this client or state */
-    CONTROL_OBJECT_UNDEFINED = 4, /** object not visible in this security context ??? */
-    CONTROL_VALUE_INVALID = 11 /** ctlVal out of range */
+    CONTROL_ACCEPTED = -1, /**< check passed */
+    CONTROL_WAITING_FOR_SELECT = 0, /**< select operation in progress - handler will be called again later */
+    CONTROL_HARDWARE_FAULT = 1, /**< check failed due to hardware fault */
+    CONTROL_TEMPORARILY_UNAVAILABLE = 2, /**< control is already selected or operated */
+    CONTROL_OBJECT_ACCESS_DENIED = 3, /**< check failed due to access control reason - access denied for this client or state */
+    CONTROL_OBJECT_UNDEFINED = 4, /**< object not visible in this security context ??? */
+    CONTROL_VALUE_INVALID = 11 /**< ctlVal out of range */
 } CheckHandlerResult;
 
 /**
  * \brief result codes for control handler (ControlWaitForExecutionHandler and ControlHandler)
  */
 typedef enum {
-    CONTROL_RESULT_FAILED = 0, /** check or operation failed */
-    CONTROL_RESULT_OK = 1,     /** check or operation was successful */
-    CONTROL_RESULT_WAITING = 2 /** check or operation is in progress */
+    CONTROL_RESULT_FAILED = 0, /**< check or operation failed */
+    CONTROL_RESULT_OK = 1,     /**< check or operation was successful */
+    CONTROL_RESULT_WAITING = 2 /**< check or operation is in progress */
 } ControlHandlerResult;
+
+typedef void* ControlAction;
+
+/**
+ * \brief Sets the error code for the next command termination or application error message
+ *
+ * \param self the control action instance
+ * \param error the error code
+ */
+LIB61850_API void
+ControlAction_setError(ControlAction self, ControlLastApplError error);
+
+/**
+ * \brief Sets the add cause for the next command termination or application error message
+ *
+ * \param self the control action instance
+ * \param addCause the additional cause
+ */
+LIB61850_API void
+ControlAction_setAddCause(ControlAction self, ControlAddCause addCause);
+
+/**
+ * \brief Gets the originator category provided by the client
+ *
+ * \param self the control action instance
+ *
+ * \return the originator category
+ */
+LIB61850_API int
+ControlAction_getOrCat(ControlAction self);
+
+/**
+ * \brief Gets the originator identifier provided by the client
+ *
+ * \param self the control action instance
+ *
+ * \return the originator identifier
+ */
+LIB61850_API uint8_t*
+ControlAction_getOrIdent(ControlAction self, int* orIdentSize);
+
+/**
+ * \brief Get the ctlNum attribute send by the client
+ *
+ * \param self the control action instance
+ *
+ * \return the ctlNum value
+ */
+LIB61850_API int
+ControlAction_getCtlNum(ControlAction self);
+
+/**
+ * \brief Check if the control callback is called by a select or operate command
+ *
+ * \param self the control action instance
+ *
+ * \return true, when called by select, false for operate
+ */
+LIB61850_API bool
+ControlAction_isSelect(ControlAction self);
+
+/**
+ * \brief Gets the client object associated with the client that caused the control action
+ *
+ * \param self the control action instance
+ *
+ * \return client connection instance
+ */
+LIB61850_API ClientConnection
+ControlAction_getClientConnection(ControlAction self);
+
+/**
+ * \brief Gets the control object that is subject to this action
+ *
+ * \param self the control action instance
+ *
+ * \return the controllable data object instance
+ */
+LIB61850_API DataObject*
+ControlAction_getControlObject(ControlAction self);
+
+/**
+ * \brief Gets the time of the control, if it's a timeActivatedControl, returns 0, if it's not.
+ *
+ * \param self the control action instance
+ *
+ * \return the controllable data object instance
+ */
+LIB61850_API uint64_t
+ControlAction_getControlTime(ControlAction self);
 
 /**
  * \brief Control model callback to perform the static tests (optional).
+ *
+ * NOTE: Signature changed in version 1.4!
  *
  * User provided callback function for the control model. It will be invoked after
  * a control operation has been invoked by the client. This callback function is
@@ -859,19 +1396,20 @@ typedef enum {
  * This handler can also be check if the client has the required permissions to execute the
  * operation and allow or deny the operation accordingly.
  *
+ * \param action the control action parameter that provides access to additional context information
  * \param parameter the parameter that was specified when setting the control handler
  * \param ctlVal the control value of the control operation.
  * \param test indicates if the operate request is a test operation
  * \param interlockCheck the interlockCheck parameter provided by the client
- * \param connection the connection object of the client connection that invoked the control operation
  *
  * \return CONTROL_ACCEPTED if the static tests had been successful, one of the error codes otherwise
  */
-typedef CheckHandlerResult (*ControlPerformCheckHandler) (void* parameter, MmsValue* ctlVal, bool test, bool interlockCheck,
-        ClientConnection connection);
+typedef CheckHandlerResult (*ControlPerformCheckHandler) (ControlAction action, void* parameter, MmsValue* ctlVal, bool test, bool interlockCheck);
 
 /**
  * \brief Control model callback to perform the dynamic tests (optional).
+ *
+ * NOTE: Signature changed in version 1.4!
  *
  * User provided callback function for the control model. It will be invoked after
  * a control operation has been invoked by the client. This callback function is
@@ -881,6 +1419,7 @@ typedef CheckHandlerResult (*ControlPerformCheckHandler) (void* parameter, MmsVa
  * cannot be performed immediately the function SHOULD return CONTROL_RESULT_WAITING and the
  * handler will be invoked again later.
  *
+ * \param action the control action parameter that provides access to additional context information
  * \param parameter the parameter that was specified when setting the control handler
  * \param ctlVal the control value of the control operation.
  * \param test indicates if the operate request is a test operation
@@ -889,10 +1428,12 @@ typedef CheckHandlerResult (*ControlPerformCheckHandler) (void* parameter, MmsVa
  * \return CONTROL_RESULT_OK if the dynamic tests had been successful, CONTROL_RESULT_FAILED otherwise,
  *         CONTROL_RESULT_WAITING if the test is not yet finished
  */
-typedef ControlHandlerResult (*ControlWaitForExecutionHandler) (void* parameter, MmsValue* ctlVal, bool test, bool synchroCheck);
+typedef ControlHandlerResult (*ControlWaitForExecutionHandler) (ControlAction action, void* parameter, MmsValue* ctlVal, bool test, bool synchroCheck);
 
 /**
  * \brief Control model callback to actually perform the control operation.
+ *
+ * NOTE: Signature changed in version 1.4!
  *
  * User provided callback function for the control model. It will be invoked when
  * a control operation happens (Oper). Here the user should perform the control operation
@@ -901,6 +1442,7 @@ typedef ControlHandlerResult (*ControlWaitForExecutionHandler) (void* parameter,
  * cannot be performed immediately the function SHOULD return CONTROL_RESULT_WAITING and the
  * handler will be invoked again later.
  *
+ * \param action the control action parameter that provides access to additional context information
  * \param parameter the parameter that was specified when setting the control handler
  * \param ctlVal the control value of the control operation.
  * \param test indicates if the operate request is a test operation
@@ -908,7 +1450,31 @@ typedef ControlHandlerResult (*ControlWaitForExecutionHandler) (void* parameter,
  * \return CONTROL_RESULT_OK if the control action bas been successful, CONTROL_RESULT_FAILED otherwise,
  *         CONTROL_RESULT_WAITING if the test is not yet finished
  */
-typedef ControlHandlerResult (*ControlHandler) (void* parameter, MmsValue* ctlVal, bool test);
+typedef ControlHandlerResult (*ControlHandler) (ControlAction action, void* parameter, MmsValue* ctlVal, bool test);
+
+/**
+ * \brief Reason why a select state of a control object changed
+ */
+typedef enum {
+    SELECT_STATE_REASON_SELECTED, /**< control has been selected */
+    SELECT_STATE_REASON_CANCELED, /**< cancel received for the control */
+    SELECT_STATE_REASON_TIMEOUT,  /**< unselected due to timeout (sboTimeout) */
+    SELECT_STATE_REASON_OPERATED, /**< unselected due to successful operate */
+    SELECT_STATE_REASON_OPERATE_FAILED, /**< unselected due to failed operate */
+    SELECT_STATE_REASON_DISCONNECTED /**< unselected due to disconnection of selecting client */
+} SelectStateChangedReason;
+
+/**
+ * \brief Control model callback that is called when the select state of a control changes
+ *
+ * New in version 1.5
+ *
+ * \param action the control action parameter that provides access to additional context information
+ * \param parameter the parameter that was specified when setting the control handler
+ * \param isSelected true when the control is selected, false otherwise
+ * \param reason reason why the select state changed
+ */
+typedef void (*ControlSelectStateChangedHandler) (ControlAction action, void* parameter, bool isSelected, SelectStateChangedReason reason);
 
 /**
  * \brief Set control handler for controllable data object
@@ -923,7 +1489,7 @@ typedef ControlHandlerResult (*ControlHandler) (void* parameter, MmsValue* ctlVa
  * \param handler a callback function of type ControlHandler
  * \param parameter a user provided parameter that is passed to the control handler.
  */
-void
+LIB61850_API void
 IedServer_setControlHandler(IedServer self, DataObject* node, ControlHandler handler, void* parameter);
 
 /**
@@ -940,7 +1506,7 @@ IedServer_setControlHandler(IedServer self, DataObject* node, ControlHandler han
  * \param parameter a user provided parameter that is passed to the control handler.
  *
  */
-void
+LIB61850_API void
 IedServer_setPerformCheckHandler(IedServer self, DataObject* node, ControlPerformCheckHandler handler, void* parameter);
 
 /**
@@ -949,8 +1515,7 @@ IedServer_setPerformCheckHandler(IedServer self, DataObject* node, ControlPerfor
  * This functions sets a user provided handler that should perform the dynamic tests for a control operation.
  * Setting this handler is not required. If not set the server assumes that the checks will always be successful.
  * The handler has to return true upon a successful test of false if the test fails. In the later case the control
- * operation will be aborted. If this handler is set than the server will start a new thread before calling the
- * handler. This thread will also be used to execute the ControlHandler.
+ * operation will be aborted.
  *
  * \param self the instance of IedServer to operate on.
  * \param node the controllable data object handle
@@ -958,8 +1523,83 @@ IedServer_setPerformCheckHandler(IedServer self, DataObject* node, ControlPerfor
  * \param parameter a user provided parameter that is passed to the control handler.
  *
  */
-void
+LIB61850_API void
 IedServer_setWaitForExecutionHandler(IedServer self, DataObject* node, ControlWaitForExecutionHandler handler, void* parameter);
+
+
+/**
+ * \brief Set a callback handler for a controllable data object to track select state changes
+ *
+ * The callback is called whenever the select state of a control changes. Reason for changes can be:
+ * - a successful select or select-with-value by a client
+ * - select timeout
+ * - operate or failed operate
+ * - cancel request by a client
+ * - the client that selected the control has been disconnected
+ *
+ * \param self the instance of IedServer to operate on.
+ * \param node the controllable data object handle
+ * \param handler a callback function of type ControlHandler
+ * \param parameter a user provided parameter that is passed to the callback handler.
+ */
+LIB61850_API void
+IedServer_setSelectStateChangedHandler(IedServer self, DataObject* node, ControlSelectStateChangedHandler handler, void* parameter);
+
+/**
+ * \brief Update the control model for the specified controllable data object with the given value and
+ *        update "ctlModel" attribute value.
+ *
+ * NOTE: The corresponding control structures for the control model have to be present in the data model!
+ *
+ * \param self the instance of IedServer to operate on.
+ * \param ctlObject the controllable data object handle
+ * \param value the new control model value
+ */
+LIB61850_API void
+IedServer_updateCtlModel(IedServer self, DataObject* ctlObject, ControlModel value);
+
+/**@}*/
+
+/**
+ * @defgroup IEC61850_SERVER_RCB Server side report control block (RCB) handling
+ *
+ * @{
+ */
+
+typedef enum {
+    RCB_EVENT_GET_PARAMETER, /* << parameter read by client (not implemented) */
+    RCB_EVENT_SET_PARAMETER, /* << parameter set by client */
+    RCB_EVENT_UNRESERVED,    /* << RCB reservation canceled */
+    RCB_EVENT_RESERVED,      /* << RCB reserved */
+    RCB_EVENT_ENABLE,        /* << RCB enabled */
+    RCB_EVENT_DISABLE,       /* << RCB disabled */
+    RCB_EVENT_GI,            /* << GI report triggered */
+    RCB_EVENT_PURGEBUF,      /* << Purge buffer procedure executed */
+    RCB_EVENT_OVERFLOW,      /* << Report buffer overflow */
+    RCB_EVENT_REPORT_CREATED /* << A new report was created and inserted into the buffer */
+} IedServer_RCBEventType;
+
+/**
+ * \brief Callback that is called in case of RCB event
+ *
+ * \param parameter user provided parameter
+ * \param rcb affected report control block
+ * \param connection client connection that is involved
+ * \param event event type
+ * \param parameterName name of the parameter in case of RCB_EVENT_SET_PARAMETER
+ * \param serviceError service error in case of RCB_EVENT_SET_PARAMETER
+ */
+typedef void (*IedServer_RCBEventHandler) (void* parameter, ReportControlBlock* rcb, ClientConnection connection, IedServer_RCBEventType event, const char* parameterName, MmsDataAccessError serviceError);
+
+/**
+ * \brief Set a handler for report control block (RCB) events
+ *
+ * \param self the instance of IedServer to operate on.
+ * \param handler the event handler to be used
+ * \param parameter a user provided parameter that is passed to the handler.
+ */
+LIB61850_API void
+IedServer_setRCBEventHandler(IedServer self, IedServer_RCBEventHandler handler, void* parameter);
 
 /**@}*/
 
@@ -992,8 +1632,63 @@ typedef void (*SVCBEventHandler) (SVControlBlock* svcb, int event, void* paramet
  * \param handler the event handler to be used
  * \param parameter a user provided parameter that is passed to the handler.
  */
-void
+LIB61850_API void
 IedServer_setSVCBHandler(IedServer self, SVControlBlock* svcb, SVCBEventHandler handler, void* parameter);
+
+/**@}*/
+
+/**
+ * @defgroup IEC61850_SERVER_GOCB Server side GOOSE control block (GoCB) handling
+ *
+ * @{
+ */
+
+typedef struct sMmsGooseControlBlock* MmsGooseControlBlock;
+
+/** Control block has been enabled by client */
+#define IEC61850_GOCB_EVENT_ENABLE 1
+
+/** Control block has been disabled by client */
+#define IEC61850_GOCB_EVENT_DISABLE 0
+
+typedef void (*GoCBEventHandler) (MmsGooseControlBlock goCb, int event, void* parameter);
+
+/**
+ * \brief Set a callback handler for GoCB events (enabled/disabled)
+ *
+ * The callback handler is called whenever a GOOSE control block is enabled or disabled.
+ * It can be used to integrate the external GOOSE publisher with the IEC 61850/MMS server.
+ *
+ * \param self the instance of IedServer to operate on.
+ * \param handler the callback handler
+ * \param parameter user provided parameter that is passed to the callback handler
+ */
+LIB61850_API void
+IedServer_setGoCBHandler(IedServer self, GoCBEventHandler handler, void* parameter);
+
+LIB61850_API char*
+MmsGooseControlBlock_getName(MmsGooseControlBlock self);
+
+LIB61850_API LogicalNode*
+MmsGooseControlBlock_getLogicalNode(MmsGooseControlBlock self);
+
+LIB61850_API DataSet*
+MmsGooseControlBlock_getDataSet(MmsGooseControlBlock self);
+
+LIB61850_API bool
+MmsGooseControlBlock_getGoEna(MmsGooseControlBlock self);
+
+LIB61850_API int
+MmsGooseControlBlock_getMinTime(MmsGooseControlBlock self);
+
+LIB61850_API int
+MmsGooseControlBlock_getMaxTime(MmsGooseControlBlock self);
+
+LIB61850_API bool
+MmsGooseControlBlock_getFixedOffs(MmsGooseControlBlock self);
+
+LIB61850_API bool
+MmsGooseControlBlock_getNdsCom(MmsGooseControlBlock self);
 
 /**@}*/
 
@@ -1008,7 +1703,7 @@ IedServer_setSVCBHandler(IedServer self, SVControlBlock* svcb, SVCBEventHandler 
  **************************************************************************/
 
 /**
- * \brief callback handler to intercept/control client access to data attributes
+ * \brief callback handler to intercept/control client write access to data attributes
  *
  * User provided callback function to intercept/control MMS client access to
  * IEC 61850 data attributes. The application can install the same handler
@@ -1017,13 +1712,17 @@ IedServer_setSVCBHandler(IedServer self, SVControlBlock* svcb, SVCBEventHandler 
  * One application can be to allow write access only from a specific client. Another
  * application could be to check if the value is in the allowed range before the write
  * is accepted.
+ * When the callback returns DATA_ACCESS_ERROR_SUCCESS the write access is accepted and the stack will
+ * update the value automatically.
+ * When the callback returns DATA_ACCESS_ERROR_SUCCESS_NO_UPDATE the write access is accepted but the
+ * stack will not update the value automatically.
  *
  * \param the data attribute that has been written by an MMS client.
  * \param the value the client want to write to the data attribute
  * \param connection the connection object of the client connection that invoked the write operation
  * \param parameter the user provided parameter
  *
- * \return true if access is accepted, false if access is denied.
+ * \return DATA_ACCESS_ERROR_SUCCESS, or DATA_ACCESS_ERROR_SUCCESS_NO_UPDATE if access is accepted, DATA_ACCESS_ERROR_OBJECT_ACCESS_DENIED if access is denied.
  */
 typedef MmsDataAccessError
 (*WriteAccessHandler) (DataAttribute* dataAttribute, MmsValue* value, ClientConnection connection, void* parameter);
@@ -1037,14 +1736,41 @@ typedef MmsDataAccessError
  * or denied. If a WriteAccessHandler is set for a specific data attribute - the
  * default write access policy will not be performed for that data attribute.
  *
+ * NOTE: If the data attribute has sub data attributes, the WriteAccessHandler is not
+ * set for the sub data attributes and will not be called when the sub data attribute is
+ * written directly!
+ *
  * \param self the instance of IedServer to operate on.
  * \param dataAttribute the data attribute to monitor
  * \param handler the callback function that is invoked if a client tries to write to
  *        the monitored data attribute.
  * \param parameter a user provided parameter that is passed to the WriteAccessHandler when called.
  */
-void
+LIB61850_API void
 IedServer_handleWriteAccess(IedServer self, DataAttribute* dataAttribute,
+        WriteAccessHandler handler, void* parameter);
+
+/**
+ * \brief Install a WriteAccessHandler for a data attribute and for all sub data attributes
+ *
+ * This instructs the server to monitor write attempts by MMS clients to specific
+ * data attributes. If a client tries to write to the monitored data attribute the
+ * handler is invoked. The handler can decide if the write access will be allowed
+ * or denied. If a WriteAccessHandler is set for a specific data attribute - the
+ * default write access policy will not be performed for that data attribute.
+ *
+ * When the data attribute is a complex attribute then the handler will also be installed
+ * for all sub data attributes. When the data attribute is a basic data attribute then
+ * this function behaves like \ref IedServer_handleWriteAccess.
+ *
+ * \param self the instance of IedServer to operate on.
+ * \param dataAttribute the data attribute to monitor
+ * \param handler the callback function that is invoked if a client tries to write to
+ *        the monitored data attribute.
+ * \param parameter a user provided parameter that is passed to the WriteAccessHandler when called.
+ */
+LIB61850_API void
+IedServer_handleWriteAccessForComplexAttribute(IedServer self, DataAttribute* dataAttribute,
         WriteAccessHandler handler, void* parameter);
 
 typedef enum {
@@ -1060,8 +1786,39 @@ typedef enum {
  * \param policy the new policy to apply.
  *
  */
-void
+LIB61850_API void
 IedServer_setWriteAccessPolicy(IedServer self, FunctionalConstraint fc, AccessPolicy policy);
+
+/**
+ * \brief callback handler to control client read access to data attributes
+ *
+ * User provided callback function to control MMS client read access to IEC 61850
+ * data objects. The application is to allow read access to data objects for specific clients only.
+ * It can be used to implement a role based access control (RBAC).
+ *
+ * \param ld the logical device the client wants to access
+ * \param ln the logical node the client wants to access
+ * \param dataObject the data object the client wants to access
+ * \param fc the functional constraint of the access
+ * \param connection the client connection that causes the access
+ * \param parameter the user provided parameter
+ *
+ * \return DATA_ACCESS_ERROR_SUCCESS if access is accepted, DATA_ACCESS_ERROR_OBJECT_ACCESS_DENIED if access is denied.
+ */
+typedef MmsDataAccessError
+(*ReadAccessHandler) (LogicalDevice* ld, LogicalNode* ln, DataObject* dataObject, FunctionalConstraint fc, ClientConnection connection, void* parameter);
+
+/**
+ * \brief Install the global read access handler
+ *
+ * The read access handler will be called for every read access before the server grants access to the client.
+ *
+ * \param self the instance of IedServer to operate on.
+ * \param handler the callback function that is invoked if a client tries to read a data object.
+ * \param parameter a user provided parameter that is passed to the callback function.
+ */
+LIB61850_API void
+IedServer_setReadAccessHandler(IedServer self, ReadAccessHandler handler, void* parameter);
 
 /**@}*/
 

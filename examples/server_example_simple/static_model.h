@@ -1,7 +1,7 @@
 /*
  * static_model.h
  *
- * automatically generated from sampleModel_with_dataset.icd
+ * automatically generated from sampleModel_with_dataset.cid
  */
 
 #ifndef STATIC_MODEL_H_

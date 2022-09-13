@@ -1,7 +1,7 @@
 /*
  *  mms_client_initiate.c
  *
- *  Copyright 2013-2017 Michael Zillgith
+ *  Copyright 2013-2020 Michael Zillgith
  *
  *  This file is part of libIEC61850.
  *
@@ -94,11 +94,11 @@ mmsClient_createInitiateRequest(MmsConnection self, ByteBuffer* message)
     buffer[bufPos++] = 0x01;
     buffer[bufPos++] = 0x01;
 
-    /* proposedParameterCBC */
+    /* proposedParameterCBC: fixed */
     buffer[bufPos++] = 0x81;
     buffer[bufPos++] = 0x03;
     buffer[bufPos++] = 0x05; /* padding */
-    buffer[bufPos++] = 0xf1;
+    buffer[bufPos++] = 0xf1; /* str1, str2, vnam, vlis, valt  */
     buffer[bufPos++] = 0x00;
 
     /* servicesSupportedCalling */
@@ -110,6 +110,8 @@ mmsClient_createInitiateRequest(MmsConnection self, ByteBuffer* message)
 int
 mmsClient_createConcludeRequest(MmsConnection self, ByteBuffer* message)
 {
+    (void)self;
+
     if (message->maxSize > 1) {
         message->buffer[0] = 0x8b;
         message->buffer[1] = 0;
@@ -149,6 +151,9 @@ parseInitResponseDetail(MmsConnection self, uint8_t* buffer, int bufPos, int max
             }
             break;
 
+        case 0x00: /* indefinite length end tag -> ignore */
+            break;
+
         default:
             break;
         }
@@ -160,10 +165,8 @@ parseInitResponseDetail(MmsConnection self, uint8_t* buffer, int bufPos, int max
 }
 
 bool
-mmsClient_parseInitiateResponse(MmsConnection self)
+mmsClient_parseInitiateResponse(MmsConnection self, ByteBuffer* response)
 {
-    bool result = false;
-
     self->parameters.maxPduSize = CONFIG_MMS_MAXIMUM_PDU_SIZE;
     self->parameters.dataStructureNestingLevel = DEFAULT_DATA_STRUCTURE_NESTING_LEVEL;
     self->parameters.maxServOutstandingCalled = DEFAULT_MAX_SERV_OUTSTANDING_CALLED;
@@ -171,16 +174,13 @@ mmsClient_parseInitiateResponse(MmsConnection self)
 
     int bufPos = 1; /* ignore tag - already checked */
 
-    int maxBufPos = ByteBuffer_getSize(self->lastResponse);
-    uint8_t* buffer = ByteBuffer_getBuffer(self->lastResponse);
+    int maxBufPos = ByteBuffer_getSize(response);
+    uint8_t* buffer = ByteBuffer_getBuffer(response);
 
     int length;
     bufPos = BerDecoder_decodeLength(buffer, &length, bufPos, maxBufPos);
 
     if (bufPos < 0)
-        return false;
-
-    if (bufPos + length > maxBufPos)
         return false;
 
     while (bufPos < maxBufPos) {
@@ -189,9 +189,6 @@ mmsClient_parseInitiateResponse(MmsConnection self)
         bufPos = BerDecoder_decodeLength(buffer, &length, bufPos, maxBufPos);
 
         if (bufPos < 0)
-            return false;
-
-        if (bufPos + length > maxBufPos)
             return false;
 
         switch (tag) {
@@ -229,6 +226,9 @@ mmsClient_parseInitiateResponse(MmsConnection self)
             }
             break;
 
+        case 0x00: /* indefinite length end tag -> ignore */
+            break;
+
         default:
             break; /* Ignore unknown tags */
         }
@@ -237,5 +237,5 @@ mmsClient_parseInitiateResponse(MmsConnection self)
     }
 
 
-    return result;
+    return true;
 }

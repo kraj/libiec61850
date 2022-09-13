@@ -1,7 +1,7 @@
 /*
  *  sv_receiver.c
  *
- *  Copyright 2015 Michael Zillgith
+ *  Copyright 2015-2022 Michael Zillgith
  *
  *  This file is part of libIEC61850.
  *
@@ -21,7 +21,9 @@
  *  See COPYING file for the complete license text.
  */
 
+#define __STDC_FORMAT_MACROS 1
 #include "stack_config.h"
+#include <inttypes.h>
 
 #include "libiec61850_platform_includes.h"
 
@@ -121,7 +123,7 @@ SVReceiver_disableDestAddrCheck(SVReceiver self)
 void
 SVReceiver_enableDestAddrCheck(SVReceiver self)
 {
-    self->checkDestAddr = false;
+    self->checkDestAddr = true;
 }
 
 void
@@ -152,38 +154,54 @@ SVReceiver_removeSubscriber(SVReceiver self, SVSubscriber subscriber)
 #endif
 }
 
-static void
+static void*
 svReceiverLoop(void* threadParameter)
 {
     SVReceiver self = (SVReceiver) threadParameter;
+    EthernetHandleSet handleSet = EthernetHandleSet_new();
+    EthernetHandleSet_addSocket(handleSet, self->ethSocket);
 
-    self->running = true;
     self->stopped = false;
 
-    SVReceiver_startThreadless(self);
-
     while (self->running) {
+            switch (EthernetHandleSet_waitReady(handleSet, 100))
+            {
+            case -1:
+                if (DEBUG_SV_SUBSCRIBER)
+                    printf("SV_SUBSCRIBER: EhtnernetHandleSet_waitReady() failure\n");
+                break;
+            case 0:
+                break;
+            default:
+                SVReceiver_tick(self);
+            }
 
-        if (SVReceiver_tick(self) == false)
-            Thread_sleep(1);
     }
 
-    SVReceiver_stopThreadless(self);
-
     self->stopped = true;
-}
 
+    EthernetHandleSet_destroy(handleSet);
+
+    return NULL;
+}
 
 void
 SVReceiver_start(SVReceiver self)
 {
-    Thread thread = Thread_create((ThreadExecutionFunction) svReceiverLoop, (void*) self, true);
+    if (SVReceiver_startThreadless(self)) {
 
-    if (thread != NULL) {
         if (DEBUG_SV_SUBSCRIBER)
             printf("SV_SUBSCRIBER: SV receiver started for interface %s\n", self->interfaceId);
 
-        Thread_start(thread);
+        Thread thread = Thread_create((ThreadExecutionFunction) svReceiverLoop, (void*) self, true);
+
+        if (thread) {
+            Thread_start(thread);
+        }
+        else {
+            if (DEBUG_SV_SUBSCRIBER)
+                printf("SV_SUBSCRIBER: Failed to start thread\n");
+        }
     }
     else {
         if (DEBUG_SV_SUBSCRIBER)
@@ -201,10 +219,12 @@ SVReceiver_isRunning(SVReceiver self)
 void
 SVReceiver_stop(SVReceiver self)
 {
-    self->running = false;
+    if (self->running) {
+        SVReceiver_stopThreadless(self);
 
-    while (self->stopped == false)
-        Thread_sleep(1);
+        while (self->stopped == false)
+            Thread_sleep(1);
+    }
 }
 
 void
@@ -212,6 +232,9 @@ SVReceiver_destroy(SVReceiver self)
 {
     LinkedList_destroyDeep(self->subscriberList,
             (LinkedListValueDeleteFunction) SVSubscriber_destroy);
+
+    if (self->interfaceId != NULL)
+        GLOBAL_FREEMEM(self->interfaceId);
 
 #if (CONFIG_MMS_THREADLESS_STACK == 0)
         Semaphore_destroy(self->subscriberListLock);
@@ -229,9 +252,12 @@ SVReceiver_startThreadless(SVReceiver self)
     else
         self->ethSocket = Ethernet_createSocket(self->interfaceId, NULL);
 
-    Ethernet_setProtocolFilter(self->ethSocket, ETH_P_SV);
+    if (self->ethSocket) {
 
-    self->running = true;
+        Ethernet_setProtocolFilter(self->ethSocket, ETH_P_SV);
+
+        self->running = true;
+    }
     
     return self->ethSocket;
 }
@@ -239,7 +265,8 @@ SVReceiver_startThreadless(SVReceiver self)
 void
 SVReceiver_stopThreadless(SVReceiver self)
 {
-    Ethernet_destroySocket(self->ethSocket);
+    if (self->ethSocket)
+        Ethernet_destroySocket(self->ethSocket);
 
     self->running = false;
 }
@@ -247,6 +274,8 @@ SVReceiver_stopThreadless(SVReceiver self)
 static void
 parseASDU(SVReceiver self, SVSubscriber subscriber, uint8_t* buffer, int length)
 {
+    (void)self;
+
     int bufPos = 0;
     int svIdLength = 0;
     int datSetLength = 0;
@@ -323,13 +352,18 @@ parseASDU(SVReceiver self, SVSubscriber subscriber, uint8_t* buffer, int length)
         printf("SV_SUBSCRIBER:   SV ASDU: ----------------\n");
         printf("SV_SUBSCRIBER:     DataLength: %d\n", asdu.dataBufferLength);
         printf("SV_SUBSCRIBER:     SvId: %s\n", asdu.svId);
-        printf("SV_SUBSCRIBER:     SmpCnt: %d\n", SVSubscriber_ASDU_getSmpCnt(&asdu));
-        printf("SV_SUBSCRIBER:     ConfRev: %d\n", SVSubscriber_ASDU_getConfRev(&asdu));
+        printf("SV_SUBSCRIBER:     SmpCnt: %u\n", SVSubscriber_ASDU_getSmpCnt(&asdu));
+        printf("SV_SUBSCRIBER:     ConfRev: %u\n", SVSubscriber_ASDU_getConfRev(&asdu));
         
         if (SVSubscriber_ASDU_hasDatSet(&asdu))
             printf("SV_SUBSCRIBER:     DatSet: %s\n", asdu.datSet);
+
         if (SVSubscriber_ASDU_hasRefrTm(&asdu))
-            printf("SV_SUBSCRIBER:     RefrTm: %lu\n", SVSubscriber_ASDU_getRefrTmAsMs(&asdu));
+#ifndef _MSC_VER
+            printf("SV_SUBSCRIBER:     RefrTm[ns]: %"PRIu64"\n", SVSubscriber_ASDU_getRefrTmAsNs(&asdu));
+#else
+            printf("SV_SUBSCRIBER:     RefrTm[ns]: %llu\n", SVSubscriber_ASDU_getRefrTmAsNs(&asdu));
+#endif
         if (SVSubscriber_ASDU_hasSmpMod(&asdu))
             printf("SV_SUBSCRIBER:     SmpMod: %d\n", SVSubscriber_ASDU_getSmpMod(&asdu));
         if (SVSubscriber_ASDU_hasSmpRate(&asdu))
@@ -337,8 +371,10 @@ parseASDU(SVReceiver self, SVSubscriber subscriber, uint8_t* buffer, int length)
     }
 
     /* Call callback handler */
-    if (subscriber->listener != NULL)
-        subscriber->listener(subscriber, subscriber->listenerParameter, &asdu);
+    if (subscriber) {
+        if (subscriber->listener != NULL)
+            subscriber->listener(subscriber, subscriber->listenerParameter, &asdu);
+    }
 }
 
 static void
@@ -391,19 +427,7 @@ parseSVPayload(SVReceiver self, SVSubscriber subscriber, uint8_t* buffer, int ap
             uint8_t tag = buffer[bufPos++];
 
             bufPos = BerDecoder_decodeLength(buffer, &elementLength, bufPos, svEnd);
-            if (bufPos < 0) {
-                if (DEBUG_SV_SUBSCRIBER) printf("SV_SUBSCRIBER: Malformed message: failed to decode BER length tag!\n");
-                return;
-            }
-
-            if (bufPos + elementLength > apduLength) {
-                if (DEBUG_SV_SUBSCRIBER)
-                    printf("SV_SUBSCRIBER: Malformed message: sub element is too large!\n");
-
-                goto exit_error;
-            }
-
-            if (bufPos == -1)
+            if (bufPos < 0)
                 goto exit_error;
 
             switch(tag) {
@@ -438,13 +462,12 @@ static void
 parseSVMessage(SVReceiver self, int numbytes)
 {
     int bufPos;
-    bool subscriberFound = false;
     uint8_t* buffer = self->buffer;
 
     if (numbytes < 22) return;
 
     /* Ethernet source address */
-    uint8_t* srcAddr = buffer;
+    uint8_t* dstAddr = buffer;
 
     /* skip ethernet addresses */
     bufPos = 12;
@@ -490,36 +513,34 @@ parseSVMessage(SVReceiver self, int numbytes)
         printf("SV_SUBSCRIBER:   APDU length: %i\n", apduLength);
     }
 
-
     /* check if there is a matching subscriber */
 
 #if (CONFIG_MMS_THREADLESS_STACK == 0)
     Semaphore_wait(self->subscriberListLock);
 #endif
 
+    SVSubscriber subscriber = NULL;
+
     LinkedList element = LinkedList_getNext(self->subscriberList);
 
-    SVSubscriber subscriber;
-
     while (element != NULL) {
-        subscriber = (SVSubscriber) LinkedList_getData(element);
+        SVSubscriber subscriberElem = (SVSubscriber) LinkedList_getData(element);
 
-        if (subscriber->appId == appId) {
+        if (subscriberElem->appId == appId) {
 
             if (self->checkDestAddr) {
-                if (memcmp(srcAddr, subscriber->ethAddr, 6) == 0) {
-                    subscriberFound = true;
+                if (memcmp(dstAddr, subscriberElem->ethAddr, 6) == 0) {
+                    subscriber = subscriberElem;
                     break;
                 }
                 else
                     if (DEBUG_SV_SUBSCRIBER)
-                        printf("SV_SUBSCRIBER: Checking ethernet src address failed!\n");
+                        printf("SV_SUBSCRIBER: Checking ethernet dest address failed!\n");
             }
             else {
-                subscriberFound = true;
+                subscriber = subscriberElem;
                 break;
             }
-
 
         }
 
@@ -530,12 +551,11 @@ parseSVMessage(SVReceiver self, int numbytes)
     Semaphore_post(self->subscriberListLock);
 #endif
 
-
-    if (subscriberFound)
+    if (subscriber)
         parseSVPayload(self, subscriber, buffer + bufPos, apduLength);
     else {
         if (DEBUG_SV_SUBSCRIBER)
-            printf("SV_SUBSCRIBER: SV message ignored due to unknown APPID value\n");
+            printf("SV_SUBSCRIBER: SV message ignored due to unknown APPID value or dest address mismatch\n");
     }
 }
 
@@ -582,6 +602,13 @@ SVSubscriber_setListener(SVSubscriber self,  SVUpdateListener listener, void* pa
     self->listenerParameter = parameter;
 }
 
+uint8_t
+SVSubscriber_ASDU_getSmpSynch(SVSubscriber_ASDU self)
+{
+    return self->smpSynch[0];
+}
+
+
 uint16_t
 SVSubscriber_ASDU_getSmpCnt(SVSubscriber_ASDU self)
 {
@@ -599,8 +626,8 @@ SVSubscriber_ASDU_getSmpCnt(SVSubscriber_ASDU self)
     return retVal;
 }
 
-static uint64_t
-decodeUtcTime(uint8_t* buffer, uint8_t* timeQuality)
+static nsSinceEpoch
+decodeUtcTimeToNsTime(uint8_t* buffer, uint8_t* timeQuality)
 {
     uint32_t timeval32;
 
@@ -609,33 +636,45 @@ decodeUtcTime(uint8_t* buffer, uint8_t* timeQuality)
     timeval32 += buffer[1] * 0x10000;
     timeval32 += buffer[0] * 0x1000000;
 
-    uint32_t msVal;
-
     uint32_t fractionOfSecond;
 
     fractionOfSecond = buffer[6];
     fractionOfSecond += buffer[5] * 0x100;
     fractionOfSecond += buffer[4] * 0x10000;
 
-    msVal = (uint32_t) (((uint64_t) fractionOfSecond * 1000) / 16777215);
+    uint64_t nsVal = fractionOfSecond;
+
+    nsVal = nsVal * 1000000000UL;
+    nsVal = nsVal >> 24;
 
     if (timeQuality != NULL)
         *timeQuality = buffer[7];
 
-    uint64_t timeval64 = (uint64_t) timeval32 * 1000 + (uint64_t) msVal;
+    uint64_t timeval64 = (uint64_t) timeval32 * 1000000000ULL + nsVal;
 
     return timeval64;
 }
 
-uint64_t
+msSinceEpoch
 SVSubscriber_ASDU_getRefrTmAsMs(SVSubscriber_ASDU self)
 {
-    uint64_t msTime = 0;
+    msSinceEpoch msTime = 0;
 
     if (self->refrTm != NULL)
-        msTime = decodeUtcTime(self->refrTm, NULL);
+        msTime = decodeUtcTimeToNsTime(self->refrTm, NULL);
 
-    return msTime;
+    return (msTime / 1000000ULL);
+}
+
+nsSinceEpoch
+SVSubscriber_ASDU_getRefrTmAsNs(SVSubscriber_ASDU self)
+{
+    nsSinceEpoch nsTime = 0;
+
+    if (self->refrTm != NULL)
+        nsTime = decodeUtcTimeToNsTime(self->refrTm, NULL);
+
+    return nsTime;
 }
 
 bool

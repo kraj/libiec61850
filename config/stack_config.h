@@ -28,7 +28,7 @@
 #define DEBUG_HAL_ETHERNET 0
 
 /* Maximum MMS PDU SIZE - default is 65000 */
-#define CONFIG_MMS_MAXIMUM_PDU_SIZE 120000
+#define CONFIG_MMS_MAXIMUM_PDU_SIZE 65000
 
 /*
  * Enable single threaded mode
@@ -39,6 +39,10 @@
  */
 #define CONFIG_MMS_SINGLE_THREADED 0
 
+#if (WITH_MBEDTLS == 1)
+#define CONFIG_MMS_SUPPORT_TLS 1
+#endif
+
 /*
  * Optimize stack for threadless operation - don't use semaphores
  *
@@ -47,7 +51,7 @@
 #define CONFIG_MMS_THREADLESS_STACK 0
 
 /* number of concurrent MMS client connections the server accepts, -1 for no limit */
-#define CONFIG_MAXIMUM_TCP_CLIENT_CONNECTIONS 5
+#define CONFIG_MAXIMUM_TCP_CLIENT_CONNECTIONS 100
 
 /* activate TCP keep alive mechanism. 1 -> activate */
 #define CONFIG_ACTIVATE_TCP_KEEPALIVE 1
@@ -64,13 +68,10 @@
 /* maximum COTP (ISO 8073) TPDU size - valid range is 1024 - 8192 */
 #define CONFIG_COTP_MAX_TPDU_SIZE 8192
 
-/* timeout while reading from TCP stream in ms */
-#define CONFIG_TCP_READ_TIMEOUT_MS 1000
-
 /* Ethernet interface ID for GOOSE and SV */
 #define CONFIG_ETHERNET_INTERFACE_ID "eth0"
-//#define CONFIG_ETHERNET_INTERFACE_ID "vboxnet0"
-//#define CONFIG_ETHERNET_INTERFACE_ID "en0"  // OS X uses enX in place of ethX as ethernet NIC names.
+/* #define CONFIG_ETHERNET_INTERFACE_ID "vboxnet0" */
+/* #define CONFIG_ETHERNET_INTERFACE_ID "en0"  // OS X uses enX in place of ethX as ethernet NIC names. */
 
 /* Set to 1 to include GOOSE support in the build. Otherwise set to 0 */
 #define CONFIG_INCLUDE_GOOSE_SUPPORT 1
@@ -143,7 +144,10 @@
 #define CONFIG_IEC61850_REPORT_SERVICE 1
 
 /* support buffered report control blocks with ResvTms field */
-#define CONFIG_IEC61850_BRCB_WITH_RESVTMS 0
+#define CONFIG_IEC61850_BRCB_WITH_RESVTMS 1
+
+/* allow only configured clients (when pre-configured by ClientLN) - note behavior in PIXIT Rp13 */
+#define CONFIG_IEC61850_RCB_ALLOW_ONLY_PRECONFIGURED_CLIENT 0
 
 /* The default buffer size of buffered RCBs in bytes */
 #define CONFIG_REPORTING_DEFAULT_REPORT_BUFFER_SIZE 65536
@@ -157,13 +161,22 @@
 /* include support for IEC 61850 log services */
 #define CONFIG_IEC61850_LOG_SERVICE 1
 
+/* include support for IEC 61850 service tracking */
+#define CONFIG_IEC61850_SERVICE_TRACKING 1
+
+/* allow user to control read access by callback */
+#define CONFIG_IEC61850_SUPPORT_USER_READ_ACCESS_CONTROL 1
+
+/* allow application to set server identity (for MMS identity service) at runtime */
+#define CONFIG_IEC61850_SUPPORT_SERVER_IDENTITY 1
+
 /* Force memory alignment - required for some platforms (required more memory for buffered reporting) */
 #define CONFIG_IEC61850_FORCE_MEMORY_ALIGNMENT 1
 
 /* overwrite default results for MMS identify service */
-//#define CONFIG_DEFAULT_MMS_VENDOR_NAME "libiec61850.com"
-//#define CONFIG_DEFAULT_MMS_MODEL_NAME "LIBIEC61850"
-//#define CONFIG_DEFAULT_MMS_REVISION "1.0.0"
+/* #define CONFIG_DEFAULT_MMS_VENDOR_NAME "libiec61850.com" */
+/* #define CONFIG_DEFAULT_MMS_MODEL_NAME "LIBIEC61850" */
+/* #define CONFIG_DEFAULT_MMS_REVISION "1.0.0" */
 
 /* MMS virtual file store base path - where MMS file services are looking for files */
 #define CONFIG_VIRTUAL_FILESTORE_BASEPATH "./vmd-filestore/"
@@ -201,19 +214,14 @@
 #define MMS_STATUS_SERVICE 1
 #define MMS_IDENTIFY_SERVICE 1
 #define MMS_FILE_SERVICE 1
-#define MMS_OBTAIN_FILE_SERVICE 1
+#define MMS_OBTAIN_FILE_SERVICE 1 /* requires MMS_FILE_SERVICE */
+#define MMS_DELETE_FILE_SERVICE 1 /* requires MMS_FILE_SERVICE */
+#define MMS_RENAME_FILE_SERVICE 0 /* requires MMS_FILE_SERVICE */
 #endif /* MMS_DEFAULT_PROFILE */
 
-#if (MMS_WRITE_SERVICE != 1)
-#undef CONFIG_IEC61850_CONTROL_SERVICE
-#define CONFIG_IEC61850_CONTROL_SERVICE 0
-#endif
 
 /* support flat named variable name space required by IEC 61850-8-1 MMS mapping */
 #define CONFIG_MMS_SUPPORT_FLATTED_NAME_SPACE 1
-
-/* VMD scope named variables are not used by IEC 61850 (one application is ICCP) */
-#define CONFIG_MMS_SUPPORT_VMD_SCOPE_NAMED_VARIABLES 0
 
 /* Sort getNameList response according to the MMS specified collation order - this is required by the standard
  * Set to 0 only for performance reasons and when no certification is required! */
@@ -227,9 +235,47 @@
 /* Support user access to raw messages */
 #define CONFIG_MMS_RAW_MESSAGE_LOGGING 1
 
-/* Allow to set the virtual filestore basepath for MMS file services at runtime with the
- * MmsServer_setFilestoreBasepath function
+/* Allow to set the virtual file store base path for MMS file services at runtime with the
+ * MmsServer_setFilestoreBasepath function.
  */
 #define CONFIG_SET_FILESTORE_BASEPATH_AT_RUNTIME 1
+
+/* enable to configure MmsServer at runtime */
+#define CONFIG_MMS_SERVER_CONFIG_SERVICES_AT_RUNTIME 1
+
+/************************************************************************************
+ * Check configuration for consistency - DO NOT MODIFY THIS PART!
+ ************************************************************************************/
+
+#if (MMS_JOURNAL_SERVICE != 1)
+
+#if (CONFIG_IEC61850_LOG_SERVICE == 1)
+#warning "Invalid configuration: CONFIG_IEC61850_LOG_SERVICE requires MMS_JOURNAL_SERVICE!"
+#endif
+
+#undef CONFIG_IEC61850_LOG_SERVICE
+#define CONFIG_IEC61850_LOG_SERVICE 0
+
+#endif
+
+#if (MMS_WRITE_SERVICE != 1)
+
+#if (CONFIG_IEC61850_CONTROL_SERVICE == 1)
+#warning "Invalid configuration: CONFIG_IEC61850_CONTROL_SERVICE requires MMS_WRITE_SERVICE!"
+#endif
+
+#undef CONFIG_IEC61850_CONTROL_SERVICE
+#define CONFIG_IEC61850_CONTROL_SERVICE 0
+#endif
+
+#if (MMS_FILE_SERVICE != 1)
+
+#if (MMS_OBTAIN_FILE_SERVICE == 1)
+#warning "Invalid configuration: MMS_OBTAIN_FILE_SERVICE requires MMS_FILE_SERVICE!"
+#endif
+
+#undef MMS_OBTAIN_FILE_SERVICE
+#define MMS_OBTAIN_FILE_SERVICE 0
+#endif
 
 #endif /* STACK_CONFIG_H_ */

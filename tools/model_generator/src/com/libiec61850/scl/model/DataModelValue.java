@@ -1,5 +1,7 @@
 package com.libiec61850.scl.model;
 
+import java.text.SimpleDateFormat;
+
 /*
  *  DataModelValue.java
  *
@@ -24,6 +26,8 @@ package com.libiec61850.scl.model;
  */
 
 import java.util.Base64;
+import java.util.Date;
+import java.util.TimeZone;
 
 import com.libiec61850.scl.types.EnumerationType;
 import com.libiec61850.scl.types.IllegalValueException;
@@ -86,7 +90,7 @@ public class DataModelValue {
         	if (trimmedValue.isEmpty())
         		this.value = new Long(0);
         	else
-        		this.value = Long.decode(trimmedValue);
+        		this.value = Long.parseLong(trimmedValue);
             break;
         case BOOLEAN:
         	
@@ -156,12 +160,51 @@ public class DataModelValue {
             System.out.println("Warning: Initialization of CHECK is unsupported!");
         case CODEDENUM:
             this.value = null;
-            System.out.println("Warning: Initialization of CODEDENUM is unsupported!");
+            
+            if (value.equals("intermediate-state"))
+            	this.value = new Integer(0);
+            else if (value.equals("off"))
+            	this.value = new Integer(1);
+            else if (value.equals("on"))
+            	this.value = new Integer(2);
+            else if (value.equals("bad-state"))
+            	this.value = new Integer(4);
+            else if (value.equals("stop"))
+            	this.value = new Integer(0);
+            else if (value.equals("lower"))
+            	this.value = new Integer(1);
+            else if (value.equals("higher"))
+            	this.value = new Integer(2);
+            else if (value.equals("reserved"))
+            	this.value = new Integer(4);
+            else 
+            	System.out.println("Warning: CODEDENUM is initialized with unsupported value " + value.toString());
+            
             break;
         case QUALITY:
         	this.value = null;
         	System.out.println("Warning: Initialization of QUALITY is unsupported!");
         	break;
+        	
+        case TIMESTAMP:
+        case ENTRY_TIME:
+            try {
+                String modValueString = value.replace(',', '.');
+                
+                SimpleDateFormat parser = new SimpleDateFormat("yyyy-MM-d'T'HH:mm:ss.SSS");
+                parser.setTimeZone(TimeZone.getTimeZone("UTC"));
+                
+                Date date = parser.parse(modValueString);
+                
+                this.value = new Long(date.toInstant().toEpochMilli());
+            }
+            catch (java.text.ParseException e) {
+                this.value = null;
+                System.out.println("Warning: Val element does not contain a valid time stamp: " + e.getMessage()); 
+            }
+        
+            break;
+        	
         default:
             throw new IllegalValueException("Unsupported type " + type.toString() + " value: " + value);
         }

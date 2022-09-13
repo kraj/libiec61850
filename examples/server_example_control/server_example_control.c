@@ -25,12 +25,26 @@ sigint_handler(int signalId)
 }
 
 static CheckHandlerResult
-checkHandler(void* parameter, MmsValue* ctlVal, bool test, bool interlockCheck, ClientConnection connection)
+checkHandler(ControlAction action, void* parameter, MmsValue* ctlVal, bool test, bool interlockCheck)
 {
-    printf("check handler called!\n");
+    ClientConnection clientCon = ControlAction_getClientConnection(action);
+
+    if (clientCon) {
+        printf("Control from client %s\n", ClientConnection_getPeerAddress(clientCon));
+    }
+    else {
+        printf("clientCon == NULL\n");
+    }
+
+    if (ControlAction_isSelect(action))
+        printf("check handler called by select command!\n");
+    else
+        printf("check handler called by operate command!\n");
 
     if (interlockCheck)
         printf("  with interlock check bit set!\n");
+
+    printf("  ctlNum: %i\n", ControlAction_getCtlNum(action));
 
     if (parameter == IEDMODEL_GenericIO_GGIO1_SPCSO1)
         return CONTROL_ACCEPTED;
@@ -51,9 +65,21 @@ checkHandler(void* parameter, MmsValue* ctlVal, bool test, bool interlockCheck, 
 }
 
 static ControlHandlerResult
-controlHandlerForBinaryOutput(void* parameter, MmsValue* value, bool test)
+controlHandlerForBinaryOutput(ControlAction action, void* parameter, MmsValue* value, bool test)
 {
     uint64_t timestamp = Hal_getTimeInMs();
+
+    printf("control handler called\n");
+    printf("  ctlNum: %i\n", ControlAction_getCtlNum(action));
+
+    ClientConnection clientCon = ControlAction_getClientConnection(action);
+
+    if (clientCon) {
+        printf("Control from client %s\n", ClientConnection_getPeerAddress(clientCon));
+    }
+    else {
+        printf("clientCon == NULL!\n");
+    }
 
     if (parameter == IEDMODEL_GenericIO_GGIO1_SPCSO1) {
         IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_GenericIO_GGIO1_SPCSO1_t, timestamp);
@@ -80,15 +106,41 @@ controlHandlerForBinaryOutput(void* parameter, MmsValue* value, bool test)
     return CONTROL_RESULT_OK;
 }
 
+static MmsDataAccessError
+writeAccessHandler (DataAttribute* dataAttribute, MmsValue* value, ClientConnection connection, void* parameter)
+{
+    ControlModel ctlModelVal = (ControlModel) MmsValue_toInt32(value);
+
+    /* we only allow status-only and direct-operate */
+    if ((ctlModelVal == CONTROL_MODEL_STATUS_ONLY) || (ctlModelVal == CONTROL_MODEL_DIRECT_NORMAL))
+    {
+        IedServer_updateCtlModel(iedServer, IEDMODEL_GenericIO_GGIO1_SPCSO1, ctlModelVal);
+
+        printf("Changed GGIO1.SPCSI.ctlModel to %i\n", ctlModelVal);
+
+        return DATA_ACCESS_ERROR_SUCCESS;
+    }
+    else {
+        return DATA_ACCESS_ERROR_OBJECT_VALUE_INVALID;
+    }
+}
+
 int
 main(int argc, char** argv)
 {
-
     iedServer = IedServer_create(&iedModel);
 
     IedServer_setControlHandler(iedServer, IEDMODEL_GenericIO_GGIO1_SPCSO1,
             (ControlHandler) controlHandlerForBinaryOutput,
             IEDMODEL_GenericIO_GGIO1_SPCSO1);
+
+    /*
+     * For SPCSO1 we want the user be able to change the control model by online service -
+     * so we install a write access handler to change the control model when the client
+     * writes to the "ctlModel" attribute.
+     */
+    IedServer_handleWriteAccess(iedServer, IEDMODEL_GenericIO_GGIO1_SPCSO1_ctlModel, writeAccessHandler, NULL);
+
 
     IedServer_setControlHandler(iedServer, IEDMODEL_GenericIO_GGIO1_SPCSO2,
             (ControlHandler) controlHandlerForBinaryOutput,
@@ -96,7 +148,7 @@ main(int argc, char** argv)
 
     /* this is optional - performs operative checks */
     IedServer_setPerformCheckHandler(iedServer, IEDMODEL_GenericIO_GGIO1_SPCSO2, checkHandler,
-    IEDMODEL_GenericIO_GGIO1_SPCSO2);
+            IEDMODEL_GenericIO_GGIO1_SPCSO2);
 
     IedServer_setControlHandler(iedServer, IEDMODEL_GenericIO_GGIO1_SPCSO3,
             (ControlHandler) controlHandlerForBinaryOutput,
@@ -141,4 +193,5 @@ main(int argc, char** argv)
 
     /* Cleanup - free all resources */
     IedServer_destroy(iedServer);
+    return 0;
 } /* main() */

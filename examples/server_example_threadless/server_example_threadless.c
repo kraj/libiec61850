@@ -26,7 +26,7 @@ sigint_handler(int signalId)
 }
 
 ControlHandlerResult
-controlHandlerForBinaryOutput(void* parameter, MmsValue* value, bool test)
+controlHandlerForBinaryOutput(ControlAction action, void* parameter, MmsValue* value, bool test)
 {
 
     if (MmsValue_getType(value) == MMS_BOOLEAN) {
@@ -150,4 +150,5 @@ main(int argc, char** argv)
 
     /* Cleanup - free all resources */
     IedServer_destroy(iedServer);
+    return 0;
 } /* main() */

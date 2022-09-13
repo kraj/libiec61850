@@ -1,7 +1,7 @@
 /*
  *  string_utilities.h
  *
- *  Copyright 2013 Michael Zillgith
+ *  Copyright 2013-2018 Michael Zillgith
  *
  *	This file is part of libIEC61850.
  *
@@ -24,64 +24,73 @@
 #ifndef STRING_UTILITIES_H_
 #define STRING_UTILITIES_H_
 
-#include "libiec61850_platform_includes.h"
+#include "libiec61850_common_api.h"
 #include "linked_list.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-char*
+LIB61850_INTERNAL char*
 StringUtils_copyString(const char* string);
 
-char*
+LIB61850_INTERNAL char*
+StringUtils_copyStringMax(char* dest, int maxBufferSize, const char* str1);
+
+LIB61850_INTERNAL char*
 StringUtils_copyStringToBuffer(const char* string, char* buffer);
 
-char*
+LIB61850_INTERNAL char*
 StringUtils_copySubString(char* startPos, char* endPos);
 
 /**
  * \brief Concatenate strings. count indicates the number of strings
  * to concatenate.
  */
-char*
+LIB61850_INTERNAL char*
 StringUtils_createString(int count, ...);
 
 /**
  * \brief Concatenate strings in user provided buffer. count indicates the number of strings
  * to concatenate.
  */
-char*
-StringUtils_createStringInBuffer(char* buffer, int count, ...);
+LIB61850_INTERNAL char*
+StringUtils_createStringInBuffer(char* newStr, int bufSize, int count, ...);
 
-char*
+LIB61850_INTERNAL char*
 StringUtils_createStringFromBuffer(const uint8_t* buf, int size);
 
-char*
+LIB61850_INTERNAL char*
 StringUtils_createStringFromBufferInBuffer(char* newString, const uint8_t* buf, int size);
 
-void
+LIB61850_INTERNAL void
 StringUtils_replace(char* string, char oldChar, char newChar);
 
-bool
+LIB61850_INTERNAL char*
+StringUtils_concatString(char* dest, int maxBufferSize, const char* str1, const char* str2);
+
+LIB61850_INTERNAL char*
+StringUtils_appendString(char* dest, int maxBufferSize, const char* str);
+
+LIB61850_INTERNAL bool
 StringUtils_isDigit(char character);
 
-int
+LIB61850_INTERNAL int
 StringUtils_digitToInt(char digit);
 
-int
+LIB61850_INTERNAL int
 StringUtils_digitsToInt(const char* digits, int count);
 
-int
+LIB61850_INTERNAL int
 StringUtils_createBufferFromHexString(char* hexString, uint8_t* buffer);
 
 /**
  * \brief test if string starts with prefix
  */
-bool
-StringUtils_startsWith(char* string, char* prefix);
+LIB61850_INTERNAL bool
+StringUtils_startsWith(const char* string, const char* prefix);
 
-bool
+LIB61850_INTERNAL bool
 StringUtils_endsWith(const char* str, const char* suffix);
 
 /**
@@ -92,7 +101,7 @@ StringUtils_endsWith(const char* str, const char* suffix);
  *
  * \returns 0 if a equals b; a positive number if b > a; a negative number if b < a
  */
-int
+LIB61850_INTERNAL int
 StringUtils_compareChars(char a, char b);
 
 /**
@@ -103,7 +112,7 @@ StringUtils_compareChars(char a, char b);
  *
  * \returns 0 if a equals b; a positive number if b > a; a negative number if b < a
  */
-int
+LIB61850_INTERNAL int
 StringUtils_compareStrings(const char* a, const char* b);
 
 /**
@@ -111,8 +120,19 @@ StringUtils_compareStrings(const char* a, const char* b);
  *
  * \param list a list that contains string elements
  */
-void
+LIB61850_INTERNAL void
 StringUtils_sortList(LinkedList list);
+
+/**
+ * \brief Convert IPv6 address string to byte array (uint8_t array)
+ *
+ * \param addressString the IPv6 address string in standard notation
+ * \param ipV6Addr buffer to store the IPv6 address bytes (has to be at least 16 bytes)
+ *
+ * \return true when parsing has been successful, false otherwise
+ */
+LIB61850_INTERNAL bool
+StringUtils_convertIPv6AdddressStringToByteArray(const char* addressString, uint8_t ipV6Addr[]);
 
 #ifdef __cplusplus
 }

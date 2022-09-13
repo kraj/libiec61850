@@ -1,7 +1,7 @@
 /*
  *  goose_subscriber.c
  *
- *  Copyright 2013, 2014 Michael Zillgith
+ *  Copyright 2013-2022 Michael Zillgith
  *
  *  This file is part of libIEC61850.
  *
@@ -40,15 +40,25 @@ GooseSubscriber_create(char* goCbRef, MmsValue* dataSetValues)
 {
     GooseSubscriber self = (GooseSubscriber) GLOBAL_CALLOC(1, sizeof(struct sGooseSubscriber));
 
-    self->goCBRef = StringUtils_copyString(goCbRef);
-    self->goCBRefLen = strlen(goCbRef);
-    self->timestamp = MmsValue_newUtcTime(0);
-    self->dataSetValues = dataSetValues;
+    if (self) {
+        StringUtils_copyStringMax(self->goCBRef, 130, goCbRef);
 
-    if (dataSetValues != NULL)
-        self->dataSetValuesSelfAllocated = false;
+        self->goCBRefLen = strlen(goCbRef);
+        self->timestamp = MmsValue_newUtcTime(0);
+        self->dataSetValues = dataSetValues;
 
-    self->appId = -1;
+        if (dataSetValues)
+            self->dataSetValuesSelfAllocated = false;
+        else
+            self->dataSetValuesSelfAllocated = true;
+
+        memset(self->dstMac, 0xFF, 6);
+        self->dstMacSet = false;
+        self->appId = -1;
+        self->isObserver = false;
+        self->vlanSet = false;
+        self->parseError = GOOSE_PARSE_ERROR_NO_ERROR;
+    }
 
     return self;
 }
@@ -65,6 +75,19 @@ GooseSubscriber_isValid(GooseSubscriber self)
     return true;
 }
 
+GooseParseError
+GooseSubscriber_getParseError(GooseSubscriber self)
+{
+    return self->parseError;
+}
+
+void
+GooseSubscriber_setDstMac(GooseSubscriber self, uint8_t dstMac[6])
+{
+  memcpy(self->dstMac, dstMac,6);
+  self->dstMacSet = true;
+}
+
 void
 GooseSubscriber_setAppId(GooseSubscriber self, uint16_t appId)
 {
@@ -74,14 +97,14 @@ GooseSubscriber_setAppId(GooseSubscriber self, uint16_t appId)
 void
 GooseSubscriber_destroy(GooseSubscriber self)
 {
-    GLOBAL_FREEMEM(self->goCBRef);
+    if (self) {
+        MmsValue_delete(self->timestamp);
 
-    MmsValue_delete(self->timestamp);
+        if (self->dataSetValuesSelfAllocated)
+            MmsValue_delete(self->dataSetValues);
 
-    if (self->dataSetValuesSelfAllocated)
-        MmsValue_delete(self->dataSetValues);
-
-    GLOBAL_FREEMEM(self);
+        GLOBAL_FREEMEM(self);
+    }
 }
 
 void
@@ -89,6 +112,42 @@ GooseSubscriber_setListener(GooseSubscriber self, GooseListener listener, void* 
 {
     self->listener = listener;
     self->listenerParameter = parameter;
+}
+
+int32_t
+GooseSubscriber_getAppId(GooseSubscriber self)
+{
+    return self->appId;
+}
+
+char *
+GooseSubscriber_getGoId(GooseSubscriber self)
+{
+    return self->goId;
+}
+
+char *
+GooseSubscriber_getGoCbRef(GooseSubscriber self)
+{
+    return self->goCBRef;
+}
+
+char *
+GooseSubscriber_getDataSet(GooseSubscriber self)
+{
+    return self->datSet;
+}
+
+void 
+GooseSubscriber_getSrcMac(GooseSubscriber self, uint8_t *buffer)
+{
+    memcpy(buffer, self->srcMac,6);
+}
+
+void 
+GooseSubscriber_getDstMac(GooseSubscriber self, uint8_t *buffer)
+{
+    memcpy(buffer, self->dstMac,6);
 }
 
 uint32_t
@@ -139,10 +198,26 @@ GooseSubscriber_getDataSetValues(GooseSubscriber self)
     return self->dataSetValues;
 }
 
+bool
+GooseSubscriber_isVlanSet(GooseSubscriber self)
+{
+    return self->vlanSet;
+}
 
+uint16_t
+GooseSubscriber_getVlanId(GooseSubscriber self)
+{
+    return self->vlanId;
+}
 
+uint8_t
+GooseSubscriber_getVlanPrio(GooseSubscriber self)
+{
+    return self->vlanPrio;
+}
 
-
-
-
-
+void
+GooseSubscriber_setObserver(GooseSubscriber self)
+{
+    self->isObserver = true;
+}

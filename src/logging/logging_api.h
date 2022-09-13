@@ -28,8 +28,7 @@
 extern "C" {
 #endif
 
-#include <stdint.h>
-#include <stdbool.h>
+#include "libiec61850_common_api.h"
 
 
 /** \addtogroup server_api_group
@@ -105,8 +104,18 @@ struct sLogStorage {
  * \param self the pointer of the LogStorage instance
  * \param maxEntries the maximum number of log entries
  */
-void
+LIB61850_API void
 LogStorage_setMaxLogEntries(LogStorage self, int maxEntries);
+
+/**
+ * \brief Get the maximum allowed number of log entries for this log
+ *
+ * \param self the pointer of the LogStorage instance
+ *
+ * \return the maximum number of log entries
+ */
+LIB61850_API int
+LogStorage_getMaxLogEntries(LogStorage self);
 
 /**
  * \brief Add an entry to the log
@@ -116,7 +125,7 @@ LogStorage_setMaxLogEntries(LogStorage self, int maxEntries);
  *
  * \return the entryID of the new entry
  */
-uint64_t
+LIB61850_API uint64_t
 LogStorage_addEntry(LogStorage self, uint64_t timestamp);
 
 /**
@@ -131,7 +140,7 @@ LogStorage_addEntry(LogStorage self, uint64_t timestamp);
  *
  * \return true if the entry data was successfully added, false otherwise
  */
-bool
+LIB61850_API bool
 LogStorage_addEntryData(LogStorage self, uint64_t entryID, const char* dataRef, uint8_t* data, int dataSize, uint8_t reasonCode);
 
 /**
@@ -146,7 +155,7 @@ LogStorage_addEntryData(LogStorage self, uint64_t entryID, const char* dataRef, 
  *
  * \return true if the request has been successful, false otherwise
  */
-bool
+LIB61850_API bool
 LogStorage_getEntries(LogStorage self, uint64_t startingTime, uint64_t endingTime,
         LogEntryCallback entryCallback, LogEntryDataCallback entryDataCallback, void* parameter);
 
@@ -165,7 +174,7 @@ LogStorage_getEntries(LogStorage self, uint64_t startingTime, uint64_t endingTim
  *
  * \return true if the request has been successful, false otherwise
  */
-bool
+LIB61850_API bool
 LogStorage_getEntriesAfter(LogStorage self, uint64_t startingTime, uint64_t entryID,
         LogEntryCallback entryCallback, LogEntryDataCallback entryDataCallback, void* parameter);
 
@@ -181,7 +190,7 @@ LogStorage_getEntriesAfter(LogStorage self, uint64_t startingTime, uint64_t entr
  * \param oldEntryTime pointer to store the entry time of the oldest entry
  *
  */
-bool
+LIB61850_API bool
 LogStorage_getOldestAndNewestEntries(LogStorage self, uint64_t* newEntry, uint64_t* newEntryTime,
         uint64_t* oldEntry, uint64_t* oldEntryTime);
 
@@ -190,7 +199,7 @@ LogStorage_getOldestAndNewestEntries(LogStorage self, uint64_t* newEntry, uint64
  *
  * \param self the pointer of the LogStorage instance
  */
-void
+LIB61850_API void
 LogStorage_destroy(LogStorage self);
 
 /**@}*/

@@ -1,7 +1,7 @@
 /*
  *  client_sv_control.c
  *
- *  Copyright 2015 Michael Zillgith
+ *  Copyright 2015-2022 Michael Zillgith
  *
  *  This file is part of libIEC61850.
  *
@@ -45,17 +45,21 @@ ClientSVControlBlock_create(IedConnection connection, const char* reference)
     IedClientError error;
     MmsValue* value = IedConnection_readObject(connection, &error, reference, IEC61850_FC_MS);
 
-    if (value != NULL) {
+    if ((error == IED_ERROR_OK) && (MmsValue_getType(value) != MMS_DATA_ACCESS_ERROR)) {
         isMulticast = true;
         MmsValue_delete(value);
     }
     else {
+        MmsValue_delete(value);
+
         value = IedConnection_readObject(connection, &error, reference, IEC61850_FC_US);
 
-        if (value == NULL)
+        if ((error == IED_ERROR_OK) && (MmsValue_getType(value) != MMS_DATA_ACCESS_ERROR))
+            MmsValue_delete(value);
+        else {
+            MmsValue_delete(value);
             return NULL;
-
-        MmsValue_delete(value);
+        }
     }
 
     ClientSVControlBlock self = (ClientSVControlBlock) GLOBAL_CALLOC(1, sizeof(struct sClientSVControlBlock));
@@ -96,9 +100,8 @@ setBooleanVariable(ClientSVControlBlock self, const char* varName, bool value)
 {
     char refBuf[130];
 
-    strcpy(refBuf, self->reference);
-    strcat(refBuf, ".");
-    strcat(refBuf, varName);
+    StringUtils_concatString(refBuf, 130, self->reference, ".");
+    StringUtils_appendString(refBuf, 130, varName);
 
     self->lastError = IED_ERROR_OK;
 
@@ -134,9 +137,8 @@ readBooleanVariable(ClientSVControlBlock self, const char* varName)
 {
     char refBuf[130];
 
-    strcpy(refBuf, self->reference);
-    strcat(refBuf, ".");
-    strcat(refBuf, varName);
+    StringUtils_concatString(refBuf, 130, self->reference, ".");
+    StringUtils_appendString(refBuf, 130, varName);
 
     self->lastError = IED_ERROR_OK;
 
@@ -167,9 +169,8 @@ readStringVariable(ClientSVControlBlock self, const char* varName)
 {
     char refBuf[130];
 
-    strcpy(refBuf, self->reference);
-    strcat(refBuf, ".");
-    strcat(refBuf, varName);
+    StringUtils_concatString(refBuf, 130, self->reference, ".");
+    StringUtils_appendString(refBuf, 130, varName);
 
     self->lastError = IED_ERROR_OK;
 
@@ -200,9 +201,8 @@ readUIntVariable(ClientSVControlBlock self, const char* varName)
 {
     char refBuf[130];
 
-    strcpy(refBuf, self->reference);
-    strcat(refBuf, ".");
-    strcat(refBuf, varName);
+    StringUtils_concatString(refBuf, 130, self->reference, ".");
+    StringUtils_appendString(refBuf, 130, varName);
 
     self->lastError = IED_ERROR_OK;
 
@@ -233,9 +233,7 @@ ClientSVControlBlock_getOptFlds(ClientSVControlBlock self)
 {
     char refBuf[130];
 
-    strcpy(refBuf, self->reference);
-    strcat(refBuf, ".");
-    strcat(refBuf, "OptFlds");
+    StringUtils_concatString(refBuf, 130, self->reference, ".OptFlds");
 
     self->lastError = IED_ERROR_OK;
 
@@ -276,9 +274,7 @@ ClientSVControlBlock_getDstAddress(ClientSVControlBlock self)
 {
     char refBuf[130];
 
-    strcpy(refBuf, self->reference);
-    strcat(refBuf, ".");
-    strcat(refBuf, "DstAddress");
+    StringUtils_concatString(refBuf, 130, self->reference, ".DstAddress");
 
     self->lastError = IED_ERROR_OK;
 
@@ -354,5 +350,4 @@ exit_cleanup:
 exit_error:
     return retVal;
 }
-
 

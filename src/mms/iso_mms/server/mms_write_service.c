@@ -34,6 +34,8 @@ void
 mmsServer_createMmsWriteResponse(MmsServerConnection connection,
         uint32_t invokeId, ByteBuffer* response, int numberOfItems, MmsDataAccessError* accessResults)
 {
+    (void)connection;
+
     int bufPos = 0;
     uint8_t* buffer = response->buffer;
 
@@ -54,6 +56,13 @@ mmsServer_createMmsWriteResponse(MmsServerConnection connection,
     uint32_t writeResponseLength = 2 + invokeIdLength
                                  + 1 + BerEncoder_determineLengthSize(accessResultsLength)
                                  + accessResultsLength;
+
+    if ((int)(writeResponseLength + 1) > response->maxSize) {
+        /* TODO add log message */
+
+        response->size = 0;
+        return;
+    }
 
     /* Encode write response */
 
@@ -80,19 +89,24 @@ mmsServer_createMmsWriteResponse(MmsServerConnection connection,
     response->size = bufPos;
 }
 
-
 void
 MmsServerConnection_sendWriteResponse(MmsServerConnection self, uint32_t invokeId, MmsDataAccessError indication, bool handlerMode)
 {
+    if (handlerMode == false)
+        IsoConnection_lock(self->isoConnection);
+
     ByteBuffer* response = MmsServer_reserveTransmitBuffer(self->server);
 
     ByteBuffer_setSize(response, 0);
 
     mmsServer_createMmsWriteResponse(self, invokeId, response, 1, &indication);
 
-    IsoConnection_sendMessage(self->isoConnection, response, handlerMode);
+    IsoConnection_sendMessage(self->isoConnection, response);
 
     MmsServer_releaseTransmitBuffer(self->server);
+
+    if (handlerMode == false)
+        IsoConnection_unlock(self->isoConnection);
 }
 
 #if 0
@@ -307,7 +321,7 @@ mmsServer_handleWriteRequest2(
                          printf("    %s\n", printBuf);
                      }
                      else {
-                         //TODO cleanup already decoded MmsValue instances
+                         /* TODO cleanup already decoded MmsValue instances */
                          printf("  Failed to decode MMS data value\n");
                          mmsMsg_createMmsRejectPdu(&invokeId, MMS_ERROR_REJECT_INVALID_PDU, response);
                          return;
@@ -354,7 +368,7 @@ createWriteNamedVariableListResponse(
         MmsDomain* variableDomain = MmsNamedVariableListEntry_getDomain(variableListEntry);
         char* variableName = MmsNamedVariableListEntry_getVariableName(variableListEntry);
 
-        MmsValue* oldValue = mmsServer_getValue(connection->server, variableDomain, variableName, connection);
+        MmsValue* oldValue = mmsServer_getValue(connection->server, variableDomain, variableName, connection, false);
 
         Data_t* dataElement = writeRequest->listOfData.list.array[i];
 
@@ -473,18 +487,32 @@ mmsServer_handleWriteRequest(
 		uint32_t invokeId,
 		ByteBuffer* response)
 {
-	MmsPdu_t* mmsPdu = 0;
+    (void)bufPos;
+
+	MmsPdu_t* mmsPdu = NULL;
+    WriteRequest_t* writeRequest = NULL;
 
 	asn_dec_rval_t rval; /* Decoder return value  */
 
-	rval = ber_decode(NULL, &asn_DEF_MmsPdu, (void**) &mmsPdu, buffer, CONFIG_MMS_MAXIMUM_PDU_SIZE);
+	rval = ber_decode(NULL, &asn_DEF_MmsPdu, (void**) &mmsPdu, buffer, maxBufPos);
 
 	if (rval.code != RC_OK) {
 	    mmsMsg_createMmsRejectPdu(&invokeId, MMS_ERROR_REJECT_INVALID_PDU, response);
 	    goto exit_function;
 	}
 
-	WriteRequest_t* writeRequest = &(mmsPdu->choice.confirmedRequestPdu.confirmedServiceRequest.choice.write);
+    if ((mmsPdu->present == MmsPdu_PR_confirmedRequestPdu) && 
+        (mmsPdu->choice.confirmedRequestPdu.confirmedServiceRequest.present 
+            == ConfirmedServiceRequest_PR_write))
+    {
+         writeRequest = &(mmsPdu->choice.confirmedRequestPdu.confirmedServiceRequest.choice.write);
+    }
+    else {
+        mmsMsg_createMmsRejectPdu(&invokeId, MMS_ERROR_REJECT_INVALID_PDU, response);
+	    goto exit_function;
+    }
+
+    MmsServer_lockModel(connection->server);
 
 	if (writeRequest->variableAccessSpecification.present == VariableAccessSpecification_PR_variableListName) {
 	    handleWriteNamedVariableListRequest(connection, writeRequest, invokeId, response);
@@ -678,13 +706,16 @@ end_of_main_loop:
         if (sendResponse)
             mmsServer_createMmsWriteResponse(connection, invokeId, response, numberOfWriteItems, accessResults);
     }
-	else { /* unknown request type */
+    else { /* unknown request type */
         mmsMsg_createMmsRejectPdu(&invokeId, MMS_ERROR_REJECT_REQUEST_INVALID_ARGUMENT, response);
         goto exit_function;
-	}
+    }
 
 exit_function:
-	asn_DEF_MmsPdu.free_struct(&asn_DEF_MmsPdu, mmsPdu, 0);
+
+    MmsServer_unlockModel(connection->server);
+
+    asn_DEF_MmsPdu.free_struct(&asn_DEF_MmsPdu, mmsPdu, 0);
 }
 
 #endif /* (MMS_WRITE_SERVICE == 1) */

@@ -129,7 +129,7 @@ typedef struct sSVReceiver* SVReceiver;
  *
  * \return the newly created receiver instance
  */
-SVReceiver
+LIB61850_API SVReceiver
 SVReceiver_create(void);
 
 /**
@@ -137,7 +137,7 @@ SVReceiver_create(void);
  *
  * \param self the receiver instance reference
  */
-void
+LIB61850_API void
 SVReceiver_disableDestAddrCheck(SVReceiver self);
 
 /**
@@ -150,7 +150,7 @@ SVReceiver_disableDestAddrCheck(SVReceiver self);
  *
  * \param self the receiver instance reference
  */
-void
+LIB61850_API void
 SVReceiver_enableDestAddrCheck(SVReceiver self);
 
 /**
@@ -163,7 +163,7 @@ SVReceiver_enableDestAddrCheck(SVReceiver self);
  * \param self the receiver instance reference
  * \param interfaceId the Ethernet interface id (platform specific e.g. eth0 for linux).
  */
-void
+LIB61850_API void
 SVReceiver_setInterfaceId(SVReceiver self, const char* interfaceId);
 
 /**
@@ -174,7 +174,7 @@ SVReceiver_setInterfaceId(SVReceiver self, const char* interfaceId);
  * \param self the receiver instance reference
  * \param subscriber the subscriber instance to connect
  */
-void
+LIB61850_API void
 SVReceiver_addSubscriber(SVReceiver self, SVSubscriber subscriber);
 
 /**
@@ -183,7 +183,7 @@ SVReceiver_addSubscriber(SVReceiver self, SVSubscriber subscriber);
  * \param self the receiver instance reference
  * \param subscriber the subscriber instance to disconnect
  */
-void
+LIB61850_API void
 SVReceiver_removeSubscriber(SVReceiver self, SVSubscriber subscriber);
 
 /**
@@ -193,7 +193,7 @@ SVReceiver_removeSubscriber(SVReceiver self, SVSubscriber subscriber);
  *
  * \param self the receiver instance reference
  */
-void
+LIB61850_API void
 SVReceiver_start(SVReceiver self);
 
 /**
@@ -201,7 +201,7 @@ SVReceiver_start(SVReceiver self);
  *
  * \param self the receiver instance reference
  */
-void
+LIB61850_API void
 SVReceiver_stop(SVReceiver self);
 
 /**
@@ -213,7 +213,7 @@ SVReceiver_stop(SVReceiver self);
  *
  * \return true if SV receiver is running, false otherwise
  */
-bool
+LIB61850_API bool
 SVReceiver_isRunning(SVReceiver self);
 
 /**
@@ -221,17 +221,17 @@ SVReceiver_isRunning(SVReceiver self);
  *
  * \param self the receiver instance reference
  */
-void
+LIB61850_API void
 SVReceiver_destroy(SVReceiver self);
 
 /***************************************
  * Functions for non-threaded operation
  ***************************************/
 
-EthernetSocket
+LIB61850_API EthernetSocket
 SVReceiver_startThreadless(SVReceiver self);
 
-void
+LIB61850_API void
 SVReceiver_stopThreadless(SVReceiver self);
 
 /**
@@ -243,14 +243,19 @@ SVReceiver_stopThreadless(SVReceiver self);
  *
  * \return true if a message was available and has been parsed, false otherwise
  */
-bool
+LIB61850_API bool
 SVReceiver_tick(SVReceiver self);
 
 /*
- * Subscriber
+ * \brief Create a new SV subscriber instance
+ *
+ * \param ethAddr optional destination address (NULL to not specify the destination address)
+ * \param appID the APP-ID to identify matching SV messages
+ *
+ * \return the new subscriber instance
  */
 
-SVSubscriber
+LIB61850_API SVSubscriber
 SVSubscriber_create(const uint8_t* ethAddr, uint16_t appID);
 
 /**
@@ -263,12 +268,11 @@ SVSubscriber_create(const uint8_t* ethAddr, uint16_t appID);
  * \param self The subscriber object
  * \param listener the callback function to install
  * \param a user provided parameter that is provided to the callback function
- *
  */
-void
+LIB61850_API void
 SVSubscriber_setListener(SVSubscriber self,  SVUpdateListener listener, void* parameter);
 
-void
+LIB61850_API void
 SVSubscriber_destroy(SVSubscriber self);
 
 /*************************************************************************
@@ -288,7 +292,7 @@ SVSubscriber_destroy(SVSubscriber self);
  *
  * \param self ASDU object instance
  */
-uint16_t
+LIB61850_API uint16_t
 SVSubscriber_ASDU_getSmpCnt(SVSubscriber_ASDU self);
 
 /**
@@ -296,7 +300,7 @@ SVSubscriber_ASDU_getSmpCnt(SVSubscriber_ASDU self);
  *
  * \param self ASDU object instance
  */
-const char*
+LIB61850_API const char*
 SVSubscriber_ASDU_getSvId(SVSubscriber_ASDU self);
 
 /**
@@ -304,7 +308,7 @@ SVSubscriber_ASDU_getSvId(SVSubscriber_ASDU self);
  *
  * \param self ASDU object instance
  */
-const char*
+LIB61850_API const char*
 SVSubscriber_ASDU_getDatSet(SVSubscriber_ASDU self);
 
 /**
@@ -312,7 +316,7 @@ SVSubscriber_ASDU_getDatSet(SVSubscriber_ASDU self);
  *
  * \param self ASDU object instance
  */
-uint32_t
+LIB61850_API uint32_t
 SVSubscriber_ASDU_getConfRev(SVSubscriber_ASDU self);
 
 /**
@@ -320,7 +324,7 @@ SVSubscriber_ASDU_getConfRev(SVSubscriber_ASDU self);
  *
  * \param self ASDU object instance
  */
-uint8_t
+LIB61850_API uint8_t
 SVSubscriber_ASDU_getSmpMod(SVSubscriber_ASDU self);
 
 /**
@@ -328,7 +332,7 @@ SVSubscriber_ASDU_getSmpMod(SVSubscriber_ASDU self);
  *
  * \param self ASDU object instance
  */
-uint16_t
+LIB61850_API uint16_t
 SVSubscriber_ASDU_getSmpRate(SVSubscriber_ASDU self);
 
 /**
@@ -338,7 +342,7 @@ SVSubscriber_ASDU_getSmpRate(SVSubscriber_ASDU self);
  *
  * \return true if DatSet value is present, false otherwise
  */
-bool
+LIB61850_API bool
 SVSubscriber_ASDU_hasDatSet(SVSubscriber_ASDU self);
 
 /**
@@ -348,7 +352,7 @@ SVSubscriber_ASDU_hasDatSet(SVSubscriber_ASDU self);
  *
  * \return true if RefrTm value is present, false otherwise
  */
-bool
+LIB61850_API bool
 SVSubscriber_ASDU_hasRefrTm(SVSubscriber_ASDU self);
 
 /**
@@ -358,7 +362,7 @@ SVSubscriber_ASDU_hasRefrTm(SVSubscriber_ASDU self);
  *
  * \return true if SmpMod value is present, false otherwise
  */
-bool
+LIB61850_API bool
 SVSubscriber_ASDU_hasSmpMod(SVSubscriber_ASDU self);
 
 /**
@@ -368,18 +372,28 @@ SVSubscriber_ASDU_hasSmpMod(SVSubscriber_ASDU self);
  *
  * \return true if SmpRate value is present, false otherwise
  */
-bool
+LIB61850_API bool
 SVSubscriber_ASDU_hasSmpRate(SVSubscriber_ASDU self);
 
 /**
- * \brief Get the RefrTim value included in SV ASDU as ms timestamp
+ * \brief Get the RefrTim value included in SV ASDU as milliseconds timestamp
  *
  * \param self ASDU object instance
  *
  * \return the time value as ms timestamp or 0 if RefrTm is not present in the SV ASDU
  */
-uint64_t
+LIB61850_API uint64_t
 SVSubscriber_ASDU_getRefrTmAsMs(SVSubscriber_ASDU self);
+
+/**
+ * \brief Get the RefrTim value included in SV ASDU as nanoseconds timestamp
+ *
+ * \param self ASDU object instance
+ *
+ * \return the time value as nanoseconds timestamp or 0 if RefrTm is not present in the SV ASDU
+ */
+LIB61850_API nsSinceEpoch
+SVSubscriber_ASDU_getRefrTmAsNs(SVSubscriber_ASDU self);
 
 /**
  * \brief Get an INT8 data value in the data part of the ASDU
@@ -389,7 +403,7 @@ SVSubscriber_ASDU_getRefrTmAsMs(SVSubscriber_ASDU self);
  *
  * \return SV data
  */
-int8_t
+LIB61850_API int8_t
 SVSubscriber_ASDU_getINT8(SVSubscriber_ASDU self, int index);
 
 /**
@@ -400,7 +414,7 @@ SVSubscriber_ASDU_getINT8(SVSubscriber_ASDU self, int index);
  *
  * \return SV data
  */
-int16_t
+LIB61850_API int16_t
 SVSubscriber_ASDU_getINT16(SVSubscriber_ASDU self, int index);
 
 /**
@@ -411,7 +425,7 @@ SVSubscriber_ASDU_getINT16(SVSubscriber_ASDU self, int index);
  *
  * \return SV data
  */
-int32_t
+LIB61850_API int32_t
 SVSubscriber_ASDU_getINT32(SVSubscriber_ASDU self, int index);
 
 /**
@@ -422,7 +436,7 @@ SVSubscriber_ASDU_getINT32(SVSubscriber_ASDU self, int index);
  *
  * \return SV data
  */
-int64_t
+LIB61850_API int64_t
 SVSubscriber_ASDU_getINT64(SVSubscriber_ASDU self, int index);
 
 /**
@@ -433,7 +447,7 @@ SVSubscriber_ASDU_getINT64(SVSubscriber_ASDU self, int index);
  *
  * \return SV data
  */
-uint8_t
+LIB61850_API uint8_t
 SVSubscriber_ASDU_getINT8U(SVSubscriber_ASDU self, int index);
 
 /**
@@ -444,7 +458,7 @@ SVSubscriber_ASDU_getINT8U(SVSubscriber_ASDU self, int index);
  *
  * \return SV data
  */
-uint16_t
+LIB61850_API uint16_t
 SVSubscriber_ASDU_getINT16U(SVSubscriber_ASDU self, int index);
 
 /**
@@ -455,7 +469,7 @@ SVSubscriber_ASDU_getINT16U(SVSubscriber_ASDU self, int index);
  *
  * \return SV data
  */
-uint32_t
+LIB61850_API uint32_t
 SVSubscriber_ASDU_getINT32U(SVSubscriber_ASDU self, int index);
 
 /**
@@ -466,7 +480,7 @@ SVSubscriber_ASDU_getINT32U(SVSubscriber_ASDU self, int index);
  *
  * \return SV data
  */
-uint64_t
+LIB61850_API uint64_t
 SVSubscriber_ASDU_getINT64U(SVSubscriber_ASDU self, int index);
 
 /**
@@ -477,7 +491,7 @@ SVSubscriber_ASDU_getINT64U(SVSubscriber_ASDU self, int index);
  *
  * \return SV data
  */
-float
+LIB61850_API float
 SVSubscriber_ASDU_getFLOAT32(SVSubscriber_ASDU self, int index);
 
 /**
@@ -488,7 +502,7 @@ SVSubscriber_ASDU_getFLOAT32(SVSubscriber_ASDU self, int index);
  *
  * \return SV data
  */
-double
+LIB61850_API double
 SVSubscriber_ASDU_getFLOAT64(SVSubscriber_ASDU self, int index);
 
 /**
@@ -499,7 +513,7 @@ SVSubscriber_ASDU_getFLOAT64(SVSubscriber_ASDU self, int index);
  *
  * \return SV data
  */
-Timestamp
+LIB61850_API Timestamp
 SVSubscriber_ASDU_getTimestamp(SVSubscriber_ASDU self, int index);
 
 /**
@@ -512,7 +526,7 @@ SVSubscriber_ASDU_getTimestamp(SVSubscriber_ASDU self, int index);
  *
  * \return SV data
  */
-Quality
+LIB61850_API Quality
 SVSubscriber_ASDU_getQuality(SVSubscriber_ASDU self, int index);
 
 /**
@@ -522,8 +536,18 @@ SVSubscriber_ASDU_getQuality(SVSubscriber_ASDU self, int index);
  *
  * \return size of the ASDU data part in bytes.
  */
-int
+LIB61850_API int
 SVSubscriber_ASDU_getDataSize(SVSubscriber_ASDU self);
+
+/**
+ * \brief return the SmpSynch value included in the SV ASDU
+ *
+ * The SmpSynch gives information about the clock synchronization.
+ *
+ * \param self ASDU object instance
+ */
+uint8_t
+SVSubscriber_ASDU_getSmpSynch(SVSubscriber_ASDU self);
 
 #ifndef DEPRECATED
 #if defined(__GNUC__) || defined(__clang__)
@@ -542,52 +566,52 @@ SVSubscriber_ASDU_getDataSize(SVSubscriber_ASDU self);
 
 typedef struct sSVSubscriberASDU* SVClientASDU;
 
-DEPRECATED uint16_t
+LIB61850_API DEPRECATED uint16_t
 SVClientASDU_getSmpCnt(SVSubscriber_ASDU self);
 
-DEPRECATED const char*
+LIB61850_API DEPRECATED const char*
 SVClientASDU_getSvId(SVSubscriber_ASDU self);
 
-DEPRECATED uint32_t
+LIB61850_API DEPRECATED uint32_t
 SVClientASDU_getConfRev(SVSubscriber_ASDU self);
 
-DEPRECATED bool
+LIB61850_API DEPRECATED bool
 SVClientASDU_hasRefrTm(SVSubscriber_ASDU self);
 
-DEPRECATED uint64_t
+LIB61850_API DEPRECATED uint64_t
 SVClientASDU_getRefrTmAsMs(SVSubscriber_ASDU self);
 
-DEPRECATED int8_t
+LIB61850_API DEPRECATED int8_t
 SVClientASDU_getINT8(SVSubscriber_ASDU self, int index);
 
-DEPRECATED int16_t
+LIB61850_API DEPRECATED int16_t
 SVClientASDU_getINT16(SVSubscriber_ASDU self, int index);
 
-DEPRECATED int32_t
+LIB61850_API DEPRECATED int32_t
 SVClientASDU_getINT32(SVSubscriber_ASDU self, int index);
 
-DEPRECATED int64_t
+LIB61850_API DEPRECATED int64_t
 SVClientASDU_getINT64(SVSubscriber_ASDU self, int index);
 
-DEPRECATED uint8_t
+LIB61850_API DEPRECATED uint8_t
 SVClientASDU_getINT8U(SVSubscriber_ASDU self, int index);
 
-DEPRECATED uint16_t
+LIB61850_API DEPRECATED uint16_t
 SVClientASDU_getINT16U(SVSubscriber_ASDU self, int index);
 
-DEPRECATED uint32_t
+LIB61850_API DEPRECATED uint32_t
 SVClientASDU_getINT32U(SVSubscriber_ASDU self, int index);
 
-DEPRECATED uint64_t
+LIB61850_API DEPRECATED uint64_t
 SVClientASDU_getINT64U(SVSubscriber_ASDU self, int index);
 
-DEPRECATED float
+LIB61850_API DEPRECATED float
 SVClientASDU_getFLOAT32(SVSubscriber_ASDU self, int index);
 
-DEPRECATED double
+LIB61850_API DEPRECATED double
 SVClientASDU_getFLOAT64(SVSubscriber_ASDU self, int index);
 
-DEPRECATED int
+LIB61850_API DEPRECATED int
 SVClientASDU_getDataSize(SVSubscriber_ASDU self);
 
 /**@} @}*/

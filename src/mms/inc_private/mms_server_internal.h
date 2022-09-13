@@ -1,24 +1,24 @@
 /*
  *  mms_server_internal.h
  *
- *  Copyright 2013, 2014 Michael Zillgith
+ *  Copyright 2013-2018 Michael Zillgith
  *
- *	This file is part of libIEC61850.
+ *  This file is part of libIEC61850.
  *
- *	libIEC61850 is free software: you can redistribute it and/or modify
- *	it under the terms of the GNU General Public License as published by
- *	the Free Software Foundation, either version 3 of the License, or
- *	(at your option) any later version.
+ *  libIEC61850 is free software: you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation, either version 3 of the License, or
+ *  (at your option) any later version.
  *
- *	libIEC61850 is distributed in the hope that it will be useful,
- *	but WITHOUT ANY WARRANTY; without even the implied warranty of
- *	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *	GNU General Public License for more details.
+ *  libIEC61850 is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  GNU General Public License for more details.
  *
- *	You should have received a copy of the GNU General Public License
- *	along with libIEC61850.  If not, see <http://www.gnu.org/licenses/>.
+ *  You should have received a copy of the GNU General Public License
+ *  along with libIEC61850.  If not, see <http://www.gnu.org/licenses/>.
  *
- *	See COPYING file for the complete license text.
+ *  See COPYING file for the complete license text.
  */
 
 #ifndef MMS_SERVER_INTERNAL_H_
@@ -32,7 +32,7 @@
 #include "mms_device_model.h"
 #include "mms_common_internal.h"
 #include "stack_config.h"
-#include "mms_server.h"
+#include "mms_server_libinternal.h"
 
 
 #include "byte_buffer.h"
@@ -85,6 +85,8 @@
 #define MMS_FILE_UPLOAD_STATE_SEND_OBTAIN_FILE_ERROR_DESTINATION 9
 #define MMS_FILE_UPLOAD_STATE_SEND_OBTAIN_FILE_RESPONSE 10
 
+#define MMS_FILE_UPLOAD_STATE_INTERRUPTED 11
+
 typedef struct sMmsObtainFileTask* MmsObtainFileTask;
 
 struct sMmsObtainFileTask {
@@ -96,12 +98,17 @@ struct sMmsObtainFileTask {
     uint64_t nextTimeout;
     int32_t frmsId;
     int state;
+#if (CONFIG_MMS_THREADLESS_STACK != 1)
+    Semaphore taskLock;
+#endif
 };
 
 #endif /* (MMS_OBTAIN_FILE_SERVICE == 1) */
 
 struct sMmsServer {
-    IsoServer isoServer;
+
+    LinkedList /*<IsoServer>*/ isoServerList;
+
     MmsDevice* device;
 
     MmsReadVariableHandler readHandler;
@@ -116,8 +123,15 @@ struct sMmsServer {
     MmsConnectionHandler connectionHandler;
     void* connectionHandlerParameter;
 
-    MmsNamedVariableListChangedHandler variableListChangedHandler; //TODO this is only required if dynamic data sets are supported!
+    MmsNamedVariableListChangedHandler variableListChangedHandler; /* TODO this is only required if dynamic data sets are supported! */
     void* variableListChangedHandlerParameter;
+
+    AcseAuthenticator authenticator;
+    void* authenticatorParameter;
+
+#if (CONFIG_MMS_THREADLESS_STACK != 1)
+    Semaphore openConnectionsLock;
+#endif
 
     Map openConnections;
     Map valueCaches;
@@ -164,12 +178,23 @@ struct sMmsServer {
     char* filestoreBasepath;
 #endif
 
+#if (CONFIG_MMS_SERVER_CONFIG_SERVICES_AT_RUNTIME == 1)
+    int maxConnections;
+    bool fileServiceEnabled;
+    bool dynamicVariableListServiceEnabled;
+    int maxDataSetEntries;
+    bool journalServiceEnabled;
+    int maxAssociationSpecificDataSets;
+    int maxDomainSpecificDataSets;
+#endif /* (CONFIG_SET_FILESTORE_BASEPATH_AT_RUNTIME == 1) */
+
 };
 
 struct sMmsServerConnection {
     int maxServOutstandingCalling;
     int maxServOutstandingCalled;
     int dataStructureNestingLevel;
+    uint8_t negotiatedParameterCBC[2];
     uint32_t maxPduSize; /* local detail */
     IsoConnection isoConnection;
     MmsServer server;
@@ -190,99 +215,105 @@ struct sMmsServerConnection {
 };
 
 #if (MMS_OBTAIN_FILE_SERVICE == 1)
-MmsObtainFileTask
+LIB61850_INTERNAL MmsObtainFileTask
 MmsServer_getObtainFileTask(MmsServer self);
 
-void
-mmsServer_fileUploadTask(MmsServer self, MmsObtainFileTask task);
+LIB61850_INTERNAL void
+mmsServer_fileUploadTask(MmsServer self, MmsObtainFileTask task, int taskState);
 #endif
 
-ByteBuffer*
+LIB61850_INTERNAL ByteBuffer*
 MmsServer_reserveTransmitBuffer(MmsServer self);
 
-void
+LIB61850_INTERNAL void
 MmsServer_releaseTransmitBuffer(MmsServer self);
 
+LIB61850_INTERNAL void
+MmsServer_callConnectionHandler(MmsServer self, MmsServerConnection connection);
+
 /* write_out function required for ASN.1 encoding */
-int
+LIB61850_INTERNAL int
 mmsServer_write_out(const void *buffer, size_t size, void *app_key);
 
 
 
-void
+LIB61850_INTERNAL void
 mmsServer_handleDeleteNamedVariableListRequest(MmsServerConnection connection,
         uint8_t* buffer, int bufPos, int maxBufPos,
         uint32_t invokeId,
         ByteBuffer* response);
 
-void
+LIB61850_INTERNAL void
 mmsServer_handleGetNamedVariableListAttributesRequest(
 		MmsServerConnection connection,
 		uint8_t* buffer, int bufPos, int maxBufPos,
 		uint32_t invokeId,
 		ByteBuffer* response);
 
-void
+LIB61850_INTERNAL void
 mmsServer_handleReadRequest(
 		MmsServerConnection connection,
 		uint8_t* buffer, int bufPos, int maxBufPos,
 		uint32_t invokeId,
 		ByteBuffer* response);
 
-MmsPdu_t*
+LIB61850_INTERNAL MmsPdu_t*
 mmsServer_createConfirmedResponse(uint32_t invokeId);
 
-void
+LIB61850_INTERNAL void
 mmsMsg_createServiceErrorPdu(uint32_t invokeId, ByteBuffer* response, MmsError errorType);
 
-void
+LIB61850_INTERNAL void
+mmsMsg_createInitiateErrorPdu(ByteBuffer* response, uint8_t initiateErrorCode);
+
+LIB61850_INTERNAL void
 mmsServer_createServiceErrorPduWithServiceSpecificInfo(uint32_t invokeId, ByteBuffer* response,
         MmsError errorType, uint8_t* serviceSpecificInfo, int serviceSpecficInfoLength);
 
-void
+LIB61850_INTERNAL void
 mmsServer_writeConcludeResponsePdu(ByteBuffer* response);
 
-void
+LIB61850_INTERNAL void
 mmsServer_handleInitiateRequest (
         MmsServerConnection self,
         uint8_t* buffer, int bufPos, int maxBufPos,
         ByteBuffer* response);
 
-int
+LIB61850_INTERNAL int
 mmsServer_handleGetVariableAccessAttributesRequest(
 		MmsServerConnection connection,
 		uint8_t* buffer, int bufPos, int maxBufPos,
 		uint32_t invokeId,
 		ByteBuffer* response);
 
-void
+LIB61850_INTERNAL void
 mmsServer_handleDefineNamedVariableListRequest(
         MmsServerConnection connection,
         uint8_t* buffer, int bufPos, int maxBufPos,
         uint32_t invokeId,
         ByteBuffer* response);
 
-void
+LIB61850_INTERNAL void
 mmsServer_handleGetNameListRequest(
 		MmsServerConnection connection,
 		uint8_t* buffer, int bufPos, int maxBufPos,
 		uint32_t invokeId,
 		ByteBuffer* response);
 
-void
+LIB61850_INTERNAL void
 mmsServer_handleWriteRequest(
 		MmsServerConnection connection,
 		uint8_t* buffer, int bufPos, int maxBufPos,
 		uint32_t invokeId,
 		ByteBuffer* response);
 
-void
+LIB61850_INTERNAL void
 mmsServer_handleIdentifyRequest(
         MmsServerConnection connection,
         uint32_t invokeId,
         ByteBuffer* response);
 
-void
+LIB61850_INTERNAL void
 mmsServer_handleStatusRequest(
         MmsServerConnection connection,
         uint8_t* requestBuffer,
@@ -290,7 +321,7 @@ mmsServer_handleStatusRequest(
         uint32_t invokeId,
         ByteBuffer* response);
 
-void
+LIB61850_INTERNAL void
 mmsServer_handleReadJournalRequest(
         MmsServerConnection connection,
         uint8_t* requestBuffer,
@@ -298,85 +329,96 @@ mmsServer_handleReadJournalRequest(
         uint32_t invokeId,
         ByteBuffer* response);
 
-void
+LIB61850_INTERNAL void
 mmsServer_handleFileDirectoryRequest(
         MmsServerConnection connection,
         uint8_t* buffer, int bufPos, int maxBufPos,
         uint32_t invokeId,
         ByteBuffer* response);
 
-void
+LIB61850_INTERNAL void
 mmsServer_handleFileOpenRequest(
         MmsServerConnection connection,
         uint8_t* buffer, int bufPos, int maxBufPos,
         uint32_t invokeId,
         ByteBuffer* response);
 
-void
+LIB61850_INTERNAL void
 mmsServer_handleFileDeleteRequest(
         MmsServerConnection connection,
         uint8_t* buffer, int bufPos, int maxBufPos,
         uint32_t invokeId,
         ByteBuffer* response);
 
-void
+LIB61850_INTERNAL void
 mmsServer_handleFileRenameRequest(
         MmsServerConnection connection,
         uint8_t* buffer, int bufPos, int maxBufPos,
         uint32_t invokeId,
         ByteBuffer* response);
 
-void
+LIB61850_INTERNAL void
 mmsServer_handleFileReadRequest(
         MmsServerConnection connection,
         uint8_t* buffer, int bufPos, int maxBufPos,
         uint32_t invokeId,
         ByteBuffer* response);
 
-void
+LIB61850_INTERNAL void
 mmsServer_handleFileCloseRequest(
         MmsServerConnection connection,
         uint8_t* buffer, int bufPos, int maxBufPos,
         uint32_t invokeId,
         ByteBuffer* response);
 
-void
+LIB61850_INTERNAL void
 mmsServer_handleObtainFileRequest(
         MmsServerConnection connection,
         uint8_t* buffer, int bufPos, int maxBufPos,
         uint32_t invokeId,
         ByteBuffer* response);
 
-int
+LIB61850_INTERNAL void
+mmsServerConnection_stopFileUploadTasks(MmsServerConnection self);
+
+LIB61850_INTERNAL bool
 mmsServer_isIndexAccess(AlternateAccess_t* alternateAccess);
 
-int
+LIB61850_INTERNAL bool
+mmsServer_isComponentAccess(AlternateAccess_t* alternateAccess);
+
+LIB61850_INTERNAL int
 mmsServer_getLowIndex(AlternateAccess_t* alternateAccess);
 
-int
+LIB61850_INTERNAL int
 mmsServer_getNumberOfElements(AlternateAccess_t* alternateAccess);
 
-MmsNamedVariableList
+LIB61850_INTERNAL MmsNamedVariableList
 mmsServer_getNamedVariableListWithName(LinkedList namedVariableLists, const char* variableListName);
 
-void
+LIB61850_INTERNAL void
 mmsServer_deleteVariableList(LinkedList namedVariableLists, char* variableListName);
 
-MmsDataAccessError
+LIB61850_INTERNAL MmsDataAccessError
 mmsServer_setValue(MmsServer self, MmsDomain* domain, char* itemId, MmsValue* value,
         MmsServerConnection connection);
 
-MmsValue*
-mmsServer_getValue(MmsServer self, MmsDomain* domain, char* itemId, MmsServerConnection connection);
+/**
+ * \brief Get the current value of a variable in the server data model
+ *
+ * \param isDirectAccess the access is result of a direct single read access to the variable and no part of broader read request
+ */
+LIB61850_INTERNAL MmsValue*
+mmsServer_getValue(MmsServer self, MmsDomain* domain, char* itemId, MmsServerConnection connection, bool isDirectAccess);
 
-void
+LIB61850_INTERNAL void
 mmsServer_createMmsWriteResponse(MmsServerConnection connection,
         uint32_t invokeId, ByteBuffer* response, int numberOfItems, MmsDataAccessError* accessResults);
 
-void
+LIB61850_INTERNAL void
 mmsMsg_createMmsRejectPdu(uint32_t* invokeId, int reason, ByteBuffer* response);
 
-MmsError
+LIB61850_INTERNAL MmsError
 mmsServer_callVariableListChangedHandler(bool create, MmsVariableListType listType, MmsDomain* domain,
         char* listName, MmsServerConnection connection);
 

@@ -26,7 +26,7 @@ sigint_handler(int signalId)
 }
 
 static ControlHandlerResult
-controlHandlerForBinaryOutput(void* parameter, MmsValue* value, bool test)
+controlHandlerForBinaryOutput(ControlAction action, void* parameter, MmsValue* value, bool test)
 {
     if (test)
         return CONTROL_RESULT_FAILED;
@@ -97,6 +97,10 @@ clientAuthenticator(void* parameter, AcseAuthenticationParameter authParameter, 
     printf("  client ap-title: "); printAppTitle(&(appRef->apTitle)); printf("\n");
     printf("  client ae-qualifier: %i\n", appRef->aeQualifier);
     printf("  auth-mechanism: %i\n", authParameter->mechanism);
+
+    if (authParameter->mechanism == ACSE_AUTH_TLS) {
+        printf("  Has certificate with size: %i\n", authParameter->value.certificate.length);
+    }
 
     return true;
 }
@@ -225,4 +229,5 @@ main(int argc, char** argv)
 
     TLSConfiguration_destroy(tlsConfig);
 
+    return 0;
 } /* main() */

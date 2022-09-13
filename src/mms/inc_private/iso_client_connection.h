@@ -1,11 +1,11 @@
 /*
  *  iso_client_connection.h
  *
- *  This is an internal interface of MMSClientConnection that connects MMS to the ISO client
+ *  This is an internal interface of MMS client connection that connects MMS to the ISO client
  *  protocol stack. It is used as an abstraction layer to isolate the MMS code from the lower
  *  protocol layers.
  *
- *  Copyright 2013, 2014 Michael Zillgith
+ *  Copyright 2013-2018 Michael Zillgith
  *
  *  This file is part of libIEC61850.
  *
@@ -40,10 +40,11 @@ typedef enum
     ISO_IND_ASSOCIATION_SUCCESS,
     ISO_IND_ASSOCIATION_FAILED,
     ISO_IND_CLOSED,
-    ISO_IND_DATA
+    ISO_IND_DATA,
+    ISO_IND_TICK
 } IsoIndication;
 
-typedef void*
+typedef bool
 (*IsoIndicationCallback)(IsoIndication indication, void* param, ByteBuffer* payload);
 
 /**
@@ -51,50 +52,60 @@ typedef void*
  */
 typedef struct sIsoClientConnection* IsoClientConnection;
 
-IsoClientConnection
-IsoClientConnection_create(IsoIndicationCallback callback, void* callbackParameter);
+LIB61850_INTERNAL IsoClientConnection
+IsoClientConnection_create(IsoConnectionParameters parameters, IsoIndicationCallback callback, void* callbackParameter);
 
-void
+LIB61850_INTERNAL void
 IsoClientConnection_destroy(IsoClientConnection self);
 
-void
-IsoClientConnection_associate(IsoClientConnection self, IsoConnectionParameters params,
-        ByteBuffer* payload, uint32_t connectTimeoutInMs);
+LIB61850_INTERNAL bool
+IsoClientConnection_associateAsync(IsoClientConnection self, uint32_t connectTimeoutInMs, uint32_t readTimeoutInMs);
 
-void
+/**
+ * called by tick function
+ *
+ * \return value indicates that connection is currently waiting and calling thread can be suspended
+ */
+LIB61850_INTERNAL bool
+IsoClientConnection_handleConnection(IsoClientConnection self);
+
+LIB61850_INTERNAL void
+IsoClientConnection_associate(IsoClientConnection self, uint32_t connectTimeoutInMs);
+
+/**
+ * Send message and release the transmit buffer
+ *
+ * \param payload message to send
+ */
+LIB61850_INTERNAL void
 IsoClientConnection_sendMessage(IsoClientConnection self, ByteBuffer* payload);
 
-void
+LIB61850_INTERNAL void
 IsoClientConnection_release(IsoClientConnection self);
 
 /**
- * \brief Send ACSE abort message and wait until connection is closed by server or timeout occured
- *
- * \return true if abort has been successful, false indicates a timeout
+ * \brief Send ACSE abort message and wait until connection is closed by server or timeout occurred
  */
-bool
-IsoClientConnection_abort(IsoClientConnection self);
+LIB61850_INTERNAL void
+IsoClientConnection_abortAsync(IsoClientConnection self);
 
-void
+LIB61850_INTERNAL void
 IsoClientConnection_close(IsoClientConnection self);
 
 /**
  * This function should be called by the API client (usually the MmsConnection) to reserve(allocate)
  * the payload buffer. This is used to prevent concurrent access to the send buffer of the IsoClientConnection
  */
-ByteBuffer*
+LIB61850_INTERNAL ByteBuffer*
 IsoClientConnection_allocateTransmitBuffer(IsoClientConnection self);
 
-/*
- * The client should release the receive buffer in order for the IsoClientConnection to
- * reuse the buffer! If this function is not called then the reception of messages is
- * blocked!
+/**
+ * This function is used to release the transmit buffer in case a formerly allocated transmit buffer cannot
+ * be sent.
  */
-void
-IsoClientConnection_releaseReceiveBuffer(IsoClientConnection self);
+LIB61850_INTERNAL void
+IsoClientConnection_releaseTransmitBuffer(IsoClientConnection self);
 
-void*
-IsoClientConnection_getSecurityToken(IsoClientConnection self);
 
 #ifdef __cplusplus
 }

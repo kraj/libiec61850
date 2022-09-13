@@ -25,6 +25,7 @@
 #define MMS_VALUE_INTERNAL_H_
 
 #include "mms_value.h"
+#include "ber_integer.h"
 
 struct ATTRIBUTE_PACKED sMmsValue {
     MmsType type;
@@ -40,11 +41,11 @@ struct ATTRIBUTE_PACKED sMmsValue {
         struct {
             uint8_t exponentWidth;
             uint8_t formatWidth; /* number of bits - either 32 or 64)  */
-            uint8_t* buf;
+            uint8_t buf[8];
         } floatingPoint;
         struct {
             uint16_t size;
-            uint16_t maxSize;
+            int maxSize;
             uint8_t* buf;
         } octetString;
         struct {
@@ -63,5 +64,11 @@ struct ATTRIBUTE_PACKED sMmsValue {
     } value;
 };
 
+
+LIB61850_INTERNAL MmsValue*
+MmsValue_newIntegerFromBerInteger(Asn1PrimitiveValue* berInteger);
+
+LIB61850_INTERNAL MmsValue*
+MmsValue_newUnsignedFromBerInteger(Asn1PrimitiveValue* berInteger);
 
 #endif /* MMS_VALUE_INTERNAL_H_ */

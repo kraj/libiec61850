@@ -1,7 +1,7 @@
 /*
  *  cotp.h
  *
- *  Copyright 2013, 2014 Michael Zillgith
+ *  Copyright 2013-2018 Michael Zillgith
  *
  *  This file is part of libIEC61850.
  *
@@ -43,10 +43,11 @@ typedef struct {
     int localRef;
     int protocolClass;
 
+    HandleSet handleSet;
     Socket socket;
-//#if (CONFIG_MMS_SUPPORT_TLS == 1)
+#if (CONFIG_MMS_SUPPORT_TLS == 1)
     TLSSocket tlsSocket;
-//#endif
+#endif
 
     CotpOptions options;
     bool isLastDataUnit;
@@ -54,6 +55,10 @@ typedef struct {
     ByteBuffer* writeBuffer;  /* buffer to store TPKT packet to send */
     ByteBuffer* readBuffer;   /* buffer to store received TPKT packet */
     uint16_t packetSize;      /* size of the packet currently received */
+
+    uint8_t* socketExtensionBuffer; /* buffer to store data when TCP socket is not accepting all data */
+    int socketExtensionBufferSize; /* maximum number of bytes to store in the extension buffer */
+    int socketExtensionBufferFill; /* number of bytes in the extension buffer (bytes to write) */
 } CotpConnection;
 
 typedef enum {
@@ -71,41 +76,42 @@ typedef enum {
     TPKT_ERROR = 2
 } TpktState;
 
-int /* in byte */
+LIB61850_INTERNAL int /* in byte */
 CotpConnection_getTpduSize(CotpConnection* self);
 
-void
+LIB61850_INTERNAL void
 CotpConnection_setTpduSize(CotpConnection* self, int tpduSize /* in byte */);
 
-void
+LIB61850_INTERNAL void
 CotpConnection_init(CotpConnection* self, Socket socket,
-        ByteBuffer* payloadBuffer, ByteBuffer* readBuffer, ByteBuffer* writeBuffer);
+        ByteBuffer* payloadBuffer, ByteBuffer* readBuffer, ByteBuffer* writeBuffer,
+        uint8_t* socketExtensionBuffer, int socketExtensionBufferSize);
 
-CotpIndication
+LIB61850_INTERNAL CotpIndication
 CotpConnection_parseIncomingMessage(CotpConnection* self);
 
-void
+LIB61850_INTERNAL void
 CotpConnection_resetPayload(CotpConnection* self);
 
-TpktState
+LIB61850_INTERNAL TpktState
 CotpConnection_readToTpktBuffer(CotpConnection* self);
 
-CotpIndication
+LIB61850_INTERNAL CotpIndication
 CotpConnection_sendConnectionRequestMessage(CotpConnection* self, IsoConnectionParameters isoParameters);
 
-CotpIndication
+LIB61850_INTERNAL CotpIndication
 CotpConnection_sendConnectionResponseMessage(CotpConnection* self);
 
-CotpIndication
+LIB61850_INTERNAL CotpIndication
 CotpConnection_sendDataMessage(CotpConnection* self, BufferChain payload);
 
-ByteBuffer*
+LIB61850_INTERNAL ByteBuffer*
 CotpConnection_getPayload(CotpConnection* self);
 
-int
+LIB61850_INTERNAL int
 CotpConnection_getRemoteRef(CotpConnection* self);
 
-int
+LIB61850_INTERNAL int
 CotpConnection_getLocalRef(CotpConnection* self);
 
 #endif /* COTP_H_ */

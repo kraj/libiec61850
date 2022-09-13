@@ -1,24 +1,24 @@
 /*
  *  mms_client_get_var_access.c
  *
- *  Copyright 2013 Michael Zillgith
+ *  Copyright 2013-2022 Michael Zillgith
  *
- *	This file is part of libIEC61850.
+ *  This file is part of libIEC61850.
  *
- *	libIEC61850 is free software: you can redistribute it and/or modify
- *	it under the terms of the GNU General Public License as published by
- *	the Free Software Foundation, either version 3 of the License, or
- *	(at your option) any later version.
+ *  libIEC61850 is free software: you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation, either version 3 of the License, or
+ *  (at your option) any later version.
  *
- *	libIEC61850 is distributed in the hope that it will be useful,
- *	but WITHOUT ANY WARRANTY; without even the implied warranty of
- *	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *	GNU General Public License for more details.
+ *  libIEC61850 is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  GNU General Public License for more details.
  *
- *	You should have received a copy of the GNU General Public License
- *	along with libIEC61850.  If not, see <http://www.gnu.org/licenses/>.
+ *  You should have received a copy of the GNU General Public License
+ *  along with libIEC61850.  If not, see <http://www.gnu.org/licenses/>.
  *
- *	See COPYING file for the complete license text.
+ *  sSee COPYING file for the complete license text.
  */
 
 #include "libiec61850_platform_includes.h"
@@ -132,30 +132,31 @@ createTypeSpecification(TypeSpecification_t* asnTypeSpec)
 MmsVariableSpecification*
 mmsClient_parseGetVariableAccessAttributesResponse(ByteBuffer* message, uint32_t* invokeId)
 {
-    MmsPdu_t* mmsPdu = 0; /* allow asn1c to allocate structure */
+    MmsPdu_t* mmsPdu = NULL; /* allow asn1c to allocate structure */
     MmsVariableSpecification* typeSpec = NULL;
 
     asn_dec_rval_t rval = ber_decode(NULL, &asn_DEF_MmsPdu,
             (void**) &mmsPdu, ByteBuffer_getBuffer(message), ByteBuffer_getSize(message));
 
-    if (rval.code != RC_OK)
-        return NULL;
+    if (rval.code == RC_OK) {
 
-    if (mmsPdu->present == MmsPdu_PR_confirmedResponsePdu) {
+        if (mmsPdu->present == MmsPdu_PR_confirmedResponsePdu) {
 
-        if (invokeId != NULL)
-            *invokeId = mmsClient_getInvokeId(&mmsPdu->choice.confirmedResponsePdu);
+            if (invokeId != NULL)
+                *invokeId = mmsClient_getInvokeId(&mmsPdu->choice.confirmedResponsePdu);
 
-        if (mmsPdu->choice.confirmedResponsePdu.confirmedServiceResponse.present ==
-                ConfirmedServiceResponse_PR_getVariableAccessAttributes)
-                {
-            GetVariableAccessAttributesResponse_t* response;
+            if (mmsPdu->choice.confirmedResponsePdu.confirmedServiceResponse.present ==
+                    ConfirmedServiceResponse_PR_getVariableAccessAttributes)
+                    {
+                GetVariableAccessAttributesResponse_t* response;
 
-            response = &(mmsPdu->choice.confirmedResponsePdu.confirmedServiceResponse.choice.getVariableAccessAttributes);
-            TypeSpecification_t* asnTypeSpec = &response->typeSpecification;
+                response = &(mmsPdu->choice.confirmedResponsePdu.confirmedServiceResponse.choice.getVariableAccessAttributes);
+                TypeSpecification_t* asnTypeSpec = &response->typeSpecification;
 
-            typeSpec = createTypeSpecification(asnTypeSpec);
+                typeSpec = createTypeSpecification(asnTypeSpec);
+            }
         }
+
     }
 
     asn_DEF_MmsPdu.free_struct(&asn_DEF_MmsPdu, mmsPdu, 0);

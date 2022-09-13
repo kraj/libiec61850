@@ -5,7 +5,7 @@
  *
  *  Partial implementation of the ISO 8073 COTP (ISO TP0) protocol for MMS.
  *
- *  Copyright 2013, 2014 Michael Zillgith
+ *  Copyright 2013-2018 Michael Zillgith
  *
  *  This file is part of libIEC61850.
  *
@@ -48,13 +48,13 @@
 static bool
 addPayloadToBuffer(CotpConnection* self, uint8_t* buffer, int payloadLength);
 
-static inline uint16_t
+static uint16_t
 getUint16(uint8_t* buffer)
 {
     return (buffer[0] * 0x100) + buffer[1];
 }
 
-static inline uint8_t
+static uint8_t
 getUint8(uint8_t* buffer)
 {
     return buffer[0];
@@ -63,7 +63,7 @@ getUint8(uint8_t* buffer)
 static void
 writeOptions(CotpConnection* self)
 {
-    // max size = 11 byte
+    /* max size = 11 byte */
     uint8_t* buffer = self->writeBuffer->buffer;
     int bufPos = self->writeBuffer->size;
 
@@ -115,7 +115,7 @@ getOptionsLength(CotpConnection* self)
     return optionsLength;
 }
 
-static inline void
+static void
 writeStaticConnectResponseHeader(CotpConnection* self, int optionsLength)
 {
     /* always same size (7) and same position in buffer */
@@ -161,7 +161,7 @@ writeDataTpduHeader(CotpConnection* self, int isLastUnit)
     self->writeBuffer->size = 7;
 }
 
-static inline int
+static int
 writeToSocket(CotpConnection* self, uint8_t* buf, int size)
 {
 #if (CONFIG_MMS_SUPPORT_TLS == 1)
@@ -174,23 +174,38 @@ writeToSocket(CotpConnection* self, uint8_t* buf, int size)
 #endif
 }
 
-
 static bool
 sendBuffer(CotpConnection* self)
 {
-    int writeBufferPosition = ByteBuffer_getSize(self->writeBuffer);
+    int remainingSize = ByteBuffer_getSize(self->writeBuffer);
+    uint8_t* buffer = ByteBuffer_getBuffer(self->writeBuffer);
 
     bool retVal = false;
 
-    int sentBytes;
+    int sentBytes = writeToSocket(self, buffer, remainingSize);
 
-    do {
-        sentBytes = writeToSocket(self, ByteBuffer_getBuffer(self->writeBuffer), writeBufferPosition);
+    if (sentBytes == -1)
+        goto exit_function;
 
-        if (sentBytes == -1)
+    if (sentBytes != remainingSize) {
+
+        /* write additional data to extension buffer */
+        if (self->socketExtensionBuffer) {
+            uint8_t* extBuf = self->socketExtensionBuffer;
+            int extCurrentPos = self->socketExtensionBufferFill;
+            int bytesNotSent = remainingSize - sentBytes;
+
+            int i;
+            for (i = 0; i < bytesNotSent; i++) {
+                extBuf[i + extCurrentPos] = buffer[sentBytes + i];
+            }
+
+            self->socketExtensionBufferFill = extCurrentPos + bytesNotSent;
+        }
+        else {
             goto exit_function;
-
-    } while (sentBytes == 0);
+        }
+    }
 
     retVal = true;
 
@@ -198,6 +213,33 @@ sendBuffer(CotpConnection* self)
 
 exit_function:
     return retVal;
+}
+
+static void
+flushBuffer(CotpConnection* self)
+{
+    if (self->socketExtensionBufferFill > 0) {
+
+        int sentBytes = writeToSocket(self, self->socketExtensionBuffer, self->socketExtensionBufferFill);
+
+        if (sentBytes > 0) {
+
+            if (sentBytes != self->socketExtensionBufferFill) {
+                int target = 0;
+                int i;
+                uint8_t* buf = self->socketExtensionBuffer;
+
+                for (i = sentBytes; i < self->socketExtensionBufferFill; i++) {
+                    buf[target++] = buf[i];
+                }
+
+                self->socketExtensionBufferFill = self->socketExtensionBufferFill - sentBytes;
+            }
+            else {
+                self->socketExtensionBufferFill = 0;
+            }
+        }
+    }
 }
 
 CotpIndication
@@ -214,6 +256,21 @@ CotpConnection_sendDataMessage(CotpConnection* self, BufferChain payload)
 
         if ((payload->length % fragmentPayloadSize) != 0)
             fragments += 1;
+    }
+
+    /* calculate total size of fragmented message */
+    int totalSize = (fragments * (COTP_DATA_HEADER_SIZE + 4)) + payload->length;
+
+    /* try to flush extension buffer */
+    flushBuffer(self);
+
+    /* check if totalSize will fit in extension buffer */
+    if (self->socketExtensionBuffer) {
+        int freeExtBufSize = self->socketExtensionBufferSize - self->socketExtensionBufferFill;
+
+        if (freeExtBufSize < totalSize) {
+            return COTP_ERROR;
+        }
     }
 
     int currentBufPos = 0;
@@ -274,7 +331,6 @@ CotpConnection_sendDataMessage(CotpConnection* self, BufferChain payload)
 
             goto exit_function;
         }
-
 
         fragments--;
     }
@@ -445,11 +501,17 @@ cpo_error:
 
 void
 CotpConnection_init(CotpConnection* self, Socket socket,
-        ByteBuffer* payloadBuffer, ByteBuffer* readBuffer, ByteBuffer* writeBuffer)
+        ByteBuffer* payloadBuffer, ByteBuffer* readBuffer, ByteBuffer* writeBuffer,
+        uint8_t* socketExtensionBuffer, int socketExtensionBufferSize)
 {
     self->state = 0;
     self->socket = socket;
+    self->handleSet = Handleset_new();
+    Handleset_addSocket( self->handleSet, self->socket );
+
+#if (CONFIG_MMS_SUPPORT_TLS == 1)
     self->tlsSocket = NULL;
+#endif
     self->remoteRef = -1;
     self->localRef = 1;
     self->protocolClass = -1;
@@ -472,6 +534,10 @@ CotpConnection_init(CotpConnection* self, Socket socket,
     self->writeBuffer = writeBuffer;
     self->readBuffer = readBuffer;
     self->packetSize = 0;
+
+    self->socketExtensionBuffer = socketExtensionBuffer;
+    self->socketExtensionBufferSize = socketExtensionBufferSize;
+    self->socketExtensionBufferFill = 0;
 }
 
 int /* in byte */
@@ -569,6 +635,13 @@ parseDataTpdu(CotpConnection* self, uint8_t* buffer, uint8_t len)
 static bool
 addPayloadToBuffer(CotpConnection* self, uint8_t* buffer,  int payloadLength)
 {
+    if (payloadLength < 1) {
+        if (DEBUG_COTP)
+            printf("COTP: missing payload\n");
+
+        return false;
+    }
+
     if (DEBUG_COTP)
         printf("COTP: add to payload buffer (cur size: %i, len: %i)\n", self->payload->size, payloadLength);
 
@@ -649,16 +722,36 @@ CotpConnection_resetPayload(CotpConnection* self)
     self->payload->size = 0;
 }
 
-
-static inline int
+static int
 readFromSocket(CotpConnection* self, uint8_t* buf, int size)
 {
 #if (CONFIG_MMS_SUPPORT_TLS == 1)
     if (self->tlsSocket)
         return TLSSocket_read(self->tlsSocket, buf, size);
-    else
+    else {
+        switch (Handleset_waitReady(self->handleSet, 10))
+        {
+            case -1:
+                return -1;
+            case 0:
+                return 0;
+            default:
+                break;
+        }
+
         return Socket_read(self->socket, buf, size);
+    }
 #else
+    switch (Handleset_waitReady(self->handleSet, 10))
+    {
+        case -1:
+            return -1;
+        case 0:
+            return 0;
+        default:
+            break;
+    }
+
     return Socket_read(self->socket, buf, size);
 #endif
 }
@@ -709,6 +802,9 @@ CotpConnection_readToTpktBuffer(CotpConnection* self)
             goto exit_waiting;
     }
 
+    if (self->packetSize <= bufPos)
+        goto exit_error;
+
     readBytes = readFromSocket(self, buffer + bufPos, self->packetSize - bufPos);
 
     if (readBytes < 0)
@@ -726,10 +822,12 @@ CotpConnection_readToTpktBuffer(CotpConnection* self)
 
 exit_closed:
     if (DEBUG_COTP) printf("TPKT: socket closed or socket error\n");
+    self->readBuffer->size = 0;
     return TPKT_ERROR;
 
 exit_error:
     if (DEBUG_COTP) printf("TPKT: Error parsing message\n");
+    self->readBuffer->size = 0;
     return TPKT_ERROR;
 
 exit_waiting:

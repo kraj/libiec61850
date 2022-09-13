@@ -1,7 +1,7 @@
 /*
  *  mms_sv.c
  *
- *  Copyright 2015 Michael Zillgith
+ *  Copyright 2015-2022 Michael Zillgith
  *
  *  This file is part of libIEC61850.
  *
@@ -28,7 +28,6 @@
 #include "libiec61850_platform_includes.h"
 #include "mms_mapping.h"
 #include "linked_list.h"
-#include "array_list.h"
 
 #include "mms_sv.h"
 
@@ -68,9 +67,11 @@ MmsSampledValueControlBlock_create()
 void
 MmsSampledValueControlBlock_destroy(MmsSampledValueControlBlock self)
 {
-    MmsValue_delete(self->mmsValue);
+    if (self) {
+        MmsValue_delete(self->mmsValue);
 
-    GLOBAL_FREEMEM(self);
+        GLOBAL_FREEMEM(self);
+    }
 }
 
 static MmsSampledValueControlBlock
@@ -131,7 +132,7 @@ LIBIEC61850_SV_writeAccessSVControlBlock(MmsMapping* self, MmsDomain* domain, ch
 {
     char variableId[130];
 
-    strncpy(variableId, variableIdOrig, 129);
+    StringUtils_copyStringMax(variableId, 130, variableIdOrig);
 
     char* separator = strchr(variableId, '$');
 
@@ -196,7 +197,7 @@ LIBIEC61850_SV_writeAccessSVControlBlock(MmsMapping* self, MmsDomain* domain, ch
         else {
             bool allowAccess = false;
 
-            // In 61850-9-2 mapping only Resv and SvEna are writable!
+            /* In 61850-9-2 mapping only Resv and SvEna are writable! */
 
             if (allowAccess)
                 return DATA_ACCESS_ERROR_SUCCESS;
@@ -214,7 +215,7 @@ LIBIEC61850_SV_readAccessSampledValueControlBlock(MmsMapping* self, MmsDomain* d
 
     char variableId[130];
 
-    strncpy(variableId, variableIdOrig, 129);
+    StringUtils_copyStringMax(variableId, 130, variableIdOrig);
 
     char* separator = strchr(variableId, '$');
 
@@ -372,7 +373,7 @@ createSVControlBlockMmsStructure(char* gcbName, bool isUnicast)
 static void
 createDataSetReference(char* buffer, char* domainName, char* lnName, char* dataSetName)
 {
-    StringUtils_createStringInBuffer(buffer, 5, domainName, "/", lnName, "$", dataSetName);
+    StringUtils_createStringInBuffer(buffer, 130, 5, domainName, "/", lnName, "$", dataSetName);
 }
 
 void

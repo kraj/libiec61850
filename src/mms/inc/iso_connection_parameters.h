@@ -1,7 +1,7 @@
 /*
  *  iso_connection_parameters.h
  *
- *  Copyright 2013, 2014 Michael Zillgith
+ *  Copyright 2013-2018 Michael Zillgith
  *
  *  This file is part of libIEC61850.
  *
@@ -28,7 +28,7 @@
 extern "C" {
 #endif
 
-#include "tls_api.h"
+#include "tls_config.h"
 
 /**
  * \addtogroup mms_client_api_group
@@ -37,7 +37,7 @@ extern "C" {
 
 
 /**
- * \brief authentication mechanism úsed by AcseAuthenticator
+ * \brief authentication mechanism used by AcseAuthenticator
  */
 typedef enum
 {
@@ -78,16 +78,16 @@ struct sAcseAuthenticationParameter
     } value;
 };
 
-AcseAuthenticationParameter
+LIB61850_API AcseAuthenticationParameter
 AcseAuthenticationParameter_create(void);
 
-void
+LIB61850_API void
 AcseAuthenticationParameter_destroy(AcseAuthenticationParameter self);
 
-void
+LIB61850_API void
 AcseAuthenticationParameter_setAuthMechanism(AcseAuthenticationParameter self, AcseAuthenticationMechanism mechanism);
 
-void
+LIB61850_API void
 AcseAuthenticationParameter_setPassword(AcseAuthenticationParameter self, char* password);
 
 
@@ -114,10 +114,25 @@ typedef struct {
     uint8_t value[4]; /** T-selector value */
 } TSelector;
 
+/**
+ * \brief OSI session selector
+ *
+ * To not use S SEL set size to 0
+ */
 typedef struct {
     uint8_t size; /** 0 .. 16 - 0 means S-selector is not present */
-    uint8_t value[16]; /** P-selector value */
+    uint8_t value[16]; /** S-selector value */
 } SSelector;
+
+/**
+ * \brief OSI presentation (P) selector
+ *
+ * To not use P SEL set size to 0
+ */
+typedef struct {
+    uint8_t size; /** 0 .. 16 - 0 means P-selector is not present */
+    uint8_t value[16]; /** P-selector value */
+} PSelector;
 
 struct sIsoConnectionParameters
 {
@@ -133,14 +148,15 @@ struct sIsoConnectionParameters
     uint8_t remoteApTitle[10];
     int remoteApTitleLen;
     int remoteAEQualifier;
-    uint32_t remotePSelector;
+    PSelector remotePSelector;
     SSelector remoteSSelector;
     TSelector remoteTSelector;
+
 
     uint8_t localApTitle[10];
     int localApTitleLen;
     int localAEQualifier;
-    uint32_t localPSelector;
+    PSelector localPSelector;
     SSelector localSSelector;
     TSelector localTSelector;
 
@@ -154,9 +170,9 @@ typedef struct sIsoConnectionParameters* IsoConnectionParameters;
  * NOTE: This function used internally by the MMS client library. When using the MMS or IEC 61850 API
  * there should be no reason for the user to call this function.
  *
- * \return new IsoConnectionParameters
+ * \return new IsoConnectionParameters instance
  */
-IsoConnectionParameters
+LIB61850_API IsoConnectionParameters
 IsoConnectionParameters_create(void);
 
 /**
@@ -167,11 +183,11 @@ IsoConnectionParameters_create(void);
  *
  * \param self the IsoConnectionParameters instance
  */
-void
+LIB61850_API void
 IsoConnectionParameters_destroy(IsoConnectionParameters self);
 
 
-void
+LIB61850_API void
 IsoConnectionParameters_setTlsConfiguration(IsoConnectionParameters self, TLSConfiguration tlsConfig);
 
 /**
@@ -182,7 +198,7 @@ IsoConnectionParameters_setTlsConfiguration(IsoConnectionParameters self, TLSCon
  * \param self the IsoConnectionParameters instance
  * \param acseAuthParameter
  */
-void
+LIB61850_API void
 IsoConnectionParameters_setAcseAuthenticationParameter(IsoConnectionParameters self,
         AcseAuthenticationParameter acseAuthParameter);
 
@@ -196,7 +212,7 @@ IsoConnectionParameters_setAcseAuthenticationParameter(IsoConnectionParameters s
  * \param hostname the hostname of IP address if the server
  * \param tcpPort the TCP port number of the server
  */
-void
+LIB61850_API void
 IsoConnectionParameters_setTcpParameters(IsoConnectionParameters self, const char* hostname, int tcpPort);
 
 /**
@@ -211,7 +227,7 @@ IsoConnectionParameters_setTcpParameters(IsoConnectionParameters self, const cha
  * \param apTitle the AP-Title OID as string.
  * \param aeQualifier the AP-qualifier
  */
-void
+LIB61850_API void
 IsoConnectionParameters_setRemoteApTitle(IsoConnectionParameters self, const char* apTitle, int aeQualifier);
 
 /**
@@ -226,8 +242,8 @@ IsoConnectionParameters_setRemoteApTitle(IsoConnectionParameters self, const cha
  *  \param sSelector the S-Selector (session layer address)
  *  \param tSelector the T-Selector (ISO transport layer address)
  */
-void
-IsoConnectionParameters_setRemoteAddresses(IsoConnectionParameters self, uint32_t pSelector, SSelector sSelector, TSelector tSelector);
+LIB61850_API void
+IsoConnectionParameters_setRemoteAddresses(IsoConnectionParameters self, PSelector pSelector, SSelector sSelector, TSelector tSelector);
 
 /**
  * \brief set the local AP-Title and AE-Qualifier
@@ -241,7 +257,7 @@ IsoConnectionParameters_setRemoteAddresses(IsoConnectionParameters self, uint32_
  * \param apTitle the AP-Title OID as string.
  * \param aeQualifier the AP-qualifier
  */
-void
+LIB61850_API void
 IsoConnectionParameters_setLocalApTitle(IsoConnectionParameters self, const char* apTitle, int aeQualifier);
 
 /**
@@ -256,8 +272,8 @@ IsoConnectionParameters_setLocalApTitle(IsoConnectionParameters self, const char
  *  \param sSelector the S-Selector (session layer address)
  *  \param tSelector the T-Selector (ISO transport layer address)
  */
-void
-IsoConnectionParameters_setLocalAddresses(IsoConnectionParameters self, uint32_t pSelector, SSelector sSelector, TSelector tSelector);
+LIB61850_API void
+IsoConnectionParameters_setLocalAddresses(IsoConnectionParameters self, PSelector pSelector, SSelector sSelector, TSelector tSelector);
 
 /**@}*/
 

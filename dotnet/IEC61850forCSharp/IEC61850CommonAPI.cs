@@ -29,6 +29,13 @@ namespace IEC61850
 	namespace Common
 	{
 
+		public enum Iec61850Edition : byte
+		{
+			EDITION_1 = 0,
+			EDITION_2 = 1,
+			EDITION_2_1 = 2
+		}
+
 		public class LibIEC61850
 		{
 			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
@@ -79,9 +86,9 @@ namespace IEC61850
 			public UInt16 vlanId;
 			public UInt16 appId;
 
-			[MarshalAs(UnmanagedType.ByValArray, SizeConst=6)]
-			public byte[] dstAddress = new byte[6];
-		}
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst=6)]
+            public byte[] dstAddress = new byte[6];
+        }
 
 		/// <summary>
 		/// MMS data access error for MmsValue type MMS_DATA_ACCESS_ERROR
@@ -116,7 +123,9 @@ namespace IEC61850
 			/** periodic transmission of all data set values */
 			INTEGRITY = 8,
 			/** general interrogation (on client request) */
-			GI = 16
+			GI = 16,
+			/** Report will be triggered only on rising edge (transient variable) */
+			TRG_OPT_TRANSIENT = 128
 		}
 
 		/// <summary>
@@ -171,7 +180,7 @@ namespace IEC61850
 		/// </summary>
 		public class Quality
 		{
-			private UInt16 value;
+			private UInt16 value;		
 
 			private const UInt16 QUALITY_DETAIL_OVERFLOW = 4;
 			private const UInt16 QUALITY_DETAIL_OUT_OF_RANGE = 8;
@@ -184,6 +193,9 @@ namespace IEC61850
 			private const UInt16 QUALITY_SOURCE_SUBSTITUTED = 1024;
 			private const UInt16 QUALITY_TEST = 2048;
 			private const UInt16 QUALITY_OPERATOR_BLOCKED = 4096;
+			private const UInt16 QUALITY_DERIVED = 8192;
+
+			public ushort Value => value;
 
 			public override string ToString ()
 			{
@@ -341,6 +353,17 @@ namespace IEC61850
 						this.value = (ushort) ((int) this.value & (~QUALITY_OPERATOR_BLOCKED));
 				}
 			}
+
+			public bool Derived
+			{
+				get { return ((this.value & QUALITY_DERIVED) != 0); }
+				set {
+					if (value)
+						this.value |= QUALITY_DERIVED;
+					else
+						this.value = (ushort) ((int) this.value & (~QUALITY_DERIVED));
+				}
+			}
 		}
 
 		/// <summary>
@@ -365,21 +388,21 @@ namespace IEC61850
 			static extern bool Timestamp_isLeapSecondKnown (IntPtr self);
 
 			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
-			static extern void Timestamp_setLeapSecondKnown (IntPtr self, bool value);
+			static extern void Timestamp_setLeapSecondKnown (IntPtr self, [MarshalAs(UnmanagedType.I1)] bool value);
 
 			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
 			[return: MarshalAs(UnmanagedType.I1)]
 			static extern bool Timestamp_hasClockFailure (IntPtr self);
 
 			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
-			static extern void Timestamp_setClockFailure (IntPtr self, bool value);
+			static extern void Timestamp_setClockFailure (IntPtr self, [MarshalAs(UnmanagedType.I1)] bool value);
 
 			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
 			[return: MarshalAs(UnmanagedType.I1)]
 			static extern bool Timestamp_isClockNotSynchronized (IntPtr self);
 
 			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
-			static extern void Timestamp_setClockNotSynchronized (IntPtr self, bool value);
+			static extern void Timestamp_setClockNotSynchronized (IntPtr self, [MarshalAs(UnmanagedType.I1)] bool value);
 
 			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
 			static extern int Timestamp_getSubsecondPrecision (IntPtr self);
@@ -628,6 +651,21 @@ namespace IEC61850
 			NONE = -1
 		}
 
+        /// <summary>
+        /// Definition for LastAppError error type for control models
+        /// Used in LastApplError and CommandTermination messages.
+        /// </summary>
+        public enum ControlLastApplError {
+            NO_ERROR = 0,
+            UNKNOWN = 1,
+            TIMEOUT_TEST = 2,
+            OPERATOR_TEST = 3
+        }
+
+        /// <summary>
+        /// AddCause - additional cause information for control model errors
+        /// Used in LastApplError and CommandTermination messages.
+        /// </summary>
 		public enum ControlAddCause {
 			ADD_CAUSE_UNKNOWN = 0,
 			ADD_CAUSE_NOT_SUPPORTED = 1,

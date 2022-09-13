@@ -1,11 +1,9 @@
 
 set (lib_common_SRCS
 ./common/string_map.c
-./common/array_list.c
 ./common/map.c
 ./common/linked_list.c
 ./common/byte_buffer.c
-./common/lib_memory.c
 ./common/string_utilities.c
 ./common/buffer_chain.c
 ./common/conversions.c
@@ -66,6 +64,7 @@ set (lib_common_SRCS
 ./iec61850/client/ied_connection.c
 ./iec61850/common/iec61850_common.c
 ./iec61850/server/impl/ied_server.c
+./iec61850/server/impl/ied_server_config.c
 ./iec61850/server/impl/client_connection.c
 ./iec61850/server/model/model.c
 ./iec61850/server/model/dynamic_model.c
@@ -79,15 +78,6 @@ set (lib_common_SRCS
 ./iec61850/server/mms_mapping/logging.c
 ./logging/log_storage.c
 )
-
-if(WITH_MBEDTLS)
-set (lib_common_SRCS ${lib_common_SRCS}
-./tls/mbedtls/tls_mbedtls.c
-)
-
-list (APPEND lib_common_SRCS ${tls_SRCS})
-
-endif(WITH_MBEDTLS)
 
 set (lib_asn1c_SRCS
 ./mms/iso_mms/asn1c/DataAccessError.c
@@ -194,27 +184,12 @@ set (lib_sv_SRCS
 )
 
 set (lib_linux_SRCS
-./hal/socket/linux/socket_linux.c
-./hal/ethernet/linux/ethernet_linux.c
-./hal/thread/linux/thread_linux.c
-./hal/filesystem/linux/file_provider_linux.c
-./hal/time/unix/time.c
 )
 
 set (lib_windows_SRCS
-./hal/socket/win32/socket_win32.c
-./hal/ethernet/win32/ethernet_win32.c
-./hal/thread/win32/thread_win32.c
-./hal/filesystem/win32/file_provider_win32.c
-./hal/time/win32/time.c
 )
 
 set (lib_bsd_SRCS
-./hal/socket/bsd/socket_bsd.c
-./hal/ethernet/bsd/ethernet_bsd.c
-./hal/thread/bsd/thread_bsd.c
-./hal/filesystem/linux/file_provider_linux.c
-./hal/time/unix/time.c
 )
 
 IF(WIN32)
@@ -242,8 +217,6 @@ ENDIF()
 ELSE()
 add_definitions(-DEXCLUDE_ETHERNET_WINDOWS)
 ENDIF()
-
-set (CMAKE_MODULE_LINKER_FLAGS   "${CMAKE_MODULE_LINKER_FLAGS}\"/DEF:${CMAKE_CURRENT_SOURCE_DIR}/vs/libiec61850.def\"") 
 
 include_directories(
   ../third_party/winpcap/include
@@ -323,6 +296,11 @@ set_target_properties(iec61850-shared PROPERTIES
            SOVERSION "${LIB_VERSION_MAJOR}.${LIB_VERSION_MINOR}.${LIB_VERSION_PATCH}"
 )
 
+target_compile_definitions(iec61850-shared PRIVATE EXPORT_FUNCTIONS_FOR_DLL)
+
+target_link_libraries(iec61850-shared
+	hal-shared
+)
 
 GENERATE_EXPORT_HEADER(iec61850-shared
 			BASE_NAME iec61850-shared
@@ -332,6 +310,10 @@ GENERATE_EXPORT_HEADER(iec61850-shared
 )
 
 add_library (iec61850 STATIC ${library_SRCS})
+
+target_link_libraries(iec61850
+	hal
+)
 
 IF(UNIX)
   IF (CONFIG_SYSTEM_HAS_CLOCK_GETTIME)
@@ -351,6 +333,7 @@ IF(MINGW)
   target_link_libraries(iec61850-shared ws2_32 iphlpapi)
   target_link_libraries(iec61850 ws2_32 iphlpapi)
 ENDIF(MINGW)
+
 iF(WITH_WPCAP)
 target_link_libraries(iec61850
    ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/winpcap/lib/wpcap.lib
@@ -361,22 +344,25 @@ target_link_libraries(iec61850-shared
    ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/winpcap/lib/packet.lib
 )
 
-
-if(MSVC)
-		set_target_properties(iec61850-shared PROPERTIES
-           	LINK_FLAGS "/DEF:\"${CMAKE_CURRENT_SOURCE_DIR}/vs/libiec61850.def\""
-       	)
-endif()
-
-ELSE(WITH_WPCAP)
-if(MSVC)
-		set_target_properties(iec61850-shared PROPERTIES
-           	LINK_FLAGS "/DEF:\"${CMAKE_CURRENT_SOURCE_DIR}/vs/libiec61850-wo-goose.def\""
-       	)
-endif()
 ENDIF(WITH_WPCAP)
+find_package(Doxygen)
+if(DOXYGEN_FOUND)
+  configure_file(Doxyfile.in ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile @ONLY)
+  add_custom_target(doc ${DOXYGEN_EXECUTABLE} ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} COMMENT "Generating API documentation with Doxygen" VERBATIM)
 
+  configure_file(doxygen/Doxyfile.NET.in ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile.NET @ONLY)
+  add_custom_target(doc-net ${DOXYGEN_EXECUTABLE} ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile.NET WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} COMMENT "Generating API documentation with Doxygen" VERBATIM)
+
+endif(DOXYGEN_FOUND)
+
+set(BINDIR "bin")
+set(LIBDIR "lib")
 if(UNIX)
+    # GNUInstallDirs is required for Debian multiarch
+    include(GNUInstallDirs)
+    set(LIBDIR ${CMAKE_INSTALL_LIBDIR})
+    set(BINDIR ${CMAKE_INSTALL_BINDIR})
+
     configure_file(
         ${CMAKE_CURRENT_LIST_DIR}/libiec61850.pc.in
         ${CMAKE_CURRENT_BINARY_DIR}/libiec61850.pc @ONLY
@@ -384,14 +370,9 @@ if(UNIX)
     install(FILES "${CMAKE_CURRENT_BINARY_DIR}/libiec61850.pc" DESTINATION "${CMAKE_INSTALL_PREFIX}/share/pkgconfig")
 endif()
 
-find_package(Doxygen)
-if(DOXYGEN_FOUND)
-  configure_file(Doxyfile.in ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile @ONLY)
-  add_custom_target(doc ${DOXYGEN_EXECUTABLE} ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} COMMENT "Generating API documentation with Doxygen" VERBATIM)
-endif(DOXYGEN_FOUND)
-
 install (TARGETS iec61850 iec61850-shared
-	RUNTIME DESTINATION bin COMPONENT Applications
-	ARCHIVE DESTINATION lib COMPONENT Libraries
-    LIBRARY DESTINATION lib COMPONENT Libraries
+	RUNTIME DESTINATION ${BINDIR} COMPONENT Applications
+	ARCHIVE DESTINATION ${LIBDIR} COMPONENT Libraries
+    LIBRARY DESTINATION ${LIBDIR} COMPONENT Libraries
 )
+

@@ -26,7 +26,7 @@ void sigint_handler(int signalId)
 }
 
 void
-controlHandlerForBinaryOutput(void* parameter, MmsValue* value)
+controlHandlerForBinaryOutput(ControlAction action, void* parameter, MmsValue* value)
 {
     uint64_t timestamp = Hal_getTimeInMs();
 
@@ -51,64 +51,108 @@ controlHandlerForBinaryOutput(void* parameter, MmsValue* value)
     }
 }
 
-int main(int argc, char** argv) {
+static void
+goCbEventHandler(MmsGooseControlBlock goCb, int event, void* parameter)
+{
+    printf("Access to GoCB: %s\n", MmsGooseControlBlock_getName(goCb));
+    printf("         GoEna: %i\n", MmsGooseControlBlock_getGoEna(goCb));
+}
 
-	iedServer = IedServer_create(&iedModel);
+int
+main(int argc, char** argv)
+{
+    IedServerConfig config = IedServerConfig_create();
 
-	if (argc > 1) {
-		char* ethernetIfcID = argv[1];
+    iedServer = IedServer_createWithConfig(&iedModel, NULL, config);
 
-		printf("Using GOOSE interface: %s\n", ethernetIfcID);
-		IedServer_setGooseInterfaceId(iedServer, ethernetIfcID);
-	}
+    IedServerConfig_destroy(config);
 
-	/* MMS server will be instructed to start listening to client connections. */
-	IedServer_start(iedServer, 102);
+    if (argc > 1) {
+        char* ethernetIfcID = argv[1];
 
-	IedServer_setControlHandler(iedServer, IEDMODEL_GenericIO_GGIO1_SPCSO1, (ControlHandler) controlHandlerForBinaryOutput,
-	        IEDMODEL_GenericIO_GGIO1_SPCSO1);
+        printf("Using GOOSE interface: %s\n", ethernetIfcID);
 
-	IedServer_setControlHandler(iedServer, IEDMODEL_GenericIO_GGIO1_SPCSO2, (ControlHandler) controlHandlerForBinaryOutput,
-	            IEDMODEL_GenericIO_GGIO1_SPCSO2);
+        /* set GOOSE interface for all GOOSE publishers (GCBs) */
+        IedServer_setGooseInterfaceId(iedServer, ethernetIfcID);
+    }
 
-	IedServer_setControlHandler(iedServer, IEDMODEL_GenericIO_GGIO1_SPCSO3, (ControlHandler) controlHandlerForBinaryOutput,
-	            IEDMODEL_GenericIO_GGIO1_SPCSO3);
+    if (argc > 2) {
+        char* ethernetIfcID = argv[2];
 
-	IedServer_setControlHandler(iedServer, IEDMODEL_GenericIO_GGIO1_SPCSO4, (ControlHandler) controlHandlerForBinaryOutput,
-	            IEDMODEL_GenericIO_GGIO1_SPCSO4);
+        printf("Using GOOSE interface for GenericIO/LLN0.gcbAnalogValues: %s\n", ethernetIfcID);
 
-	if (!IedServer_isRunning(iedServer)) {
-		printf("Starting server failed! Exit.\n");
-		IedServer_destroy(iedServer);
-		exit(-1);
-	}
+        /* set GOOSE interface for a particular GOOSE publisher (GCB) */
+        IedServer_setGooseInterfaceIdEx(iedServer, IEDMODEL_GenericIO_LLN0, "gcbAnalogValues", ethernetIfcID);
+    }
 
-	/* Start GOOSE publishing */
-	IedServer_enableGoosePublishing(iedServer);
+    IedServer_setGoCBHandler(iedServer, goCbEventHandler, NULL);
 
-	running = 1;
+    /* MMS server will be instructed to start listening to client connections. */
+    IedServer_start(iedServer, 102);
 
-	signal(SIGINT, sigint_handler);
+    IedServer_setControlHandler(iedServer, IEDMODEL_GenericIO_GGIO1_SPCSO1, (ControlHandler) controlHandlerForBinaryOutput,
+    IEDMODEL_GenericIO_GGIO1_SPCSO1);
 
-	float anIn1 = 0.f;
+    IedServer_setControlHandler(iedServer, IEDMODEL_GenericIO_GGIO1_SPCSO2, (ControlHandler) controlHandlerForBinaryOutput,
+    IEDMODEL_GenericIO_GGIO1_SPCSO2);
 
-	while (running) {
+    IedServer_setControlHandler(iedServer, IEDMODEL_GenericIO_GGIO1_SPCSO3, (ControlHandler) controlHandlerForBinaryOutput,
+    IEDMODEL_GenericIO_GGIO1_SPCSO3);
 
-	    IedServer_lockDataModel(iedServer);
+    IedServer_setControlHandler(iedServer, IEDMODEL_GenericIO_GGIO1_SPCSO4, (ControlHandler) controlHandlerForBinaryOutput,
+    IEDMODEL_GenericIO_GGIO1_SPCSO4);
+
+    if (!IedServer_isRunning(iedServer)) {
+        printf("Starting server failed! Exit.\n");
+        IedServer_destroy(iedServer);
+        exit(-1);
+    }
+
+    /* Start GOOSE publishing */
+    IedServer_enableGoosePublishing(iedServer);
+
+    running = 1;
+
+    signal(SIGINT, sigint_handler);
+
+    float anIn1 = 0.f;
+
+    int eventCount = 10;
+
+    while (running) {
+
+        IedServer_lockDataModel(iedServer);
 
         IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_GenericIO_GGIO1_AnIn1_t, Hal_getTimeInMs());
-	    IedServer_updateFloatAttributeValue(iedServer, IEDMODEL_GenericIO_GGIO1_AnIn1_mag_f, anIn1);
+        IedServer_updateFloatAttributeValue(iedServer, IEDMODEL_GenericIO_GGIO1_AnIn1_mag_f, anIn1);
 
-	    IedServer_unlockDataModel(iedServer);
+        if (eventCount) {
+            IedServer_updateUTCTimeAttributeValue(iedServer, IEDMODEL_GenericIO_GGIO1_SPCSO4_t, Hal_getTimeInMs());
 
-	    anIn1 += 0.1;
+            if (eventCount % 2) {
+                IedServer_updateQuality(iedServer, IEDMODEL_GenericIO_GGIO1_SPCSO4_q, QUALITY_VALIDITY_GOOD);
+                IedServer_updateBooleanAttributeValue(iedServer, IEDMODEL_GenericIO_GGIO1_SPCSO4_stVal, true);
+            }
+            else {
+                IedServer_updateQuality(iedServer, IEDMODEL_GenericIO_GGIO1_SPCSO4_q, QUALITY_VALIDITY_INVALID);
+                IedServer_updateBooleanAttributeValue(iedServer, IEDMODEL_GenericIO_GGIO1_SPCSO4_stVal, false);
+            }
 
-		Thread_sleep(1000);
-	}
+            eventCount--;
+        }
 
-	/* stop MMS server - close TCP server socket and all client sockets */
-	IedServer_stop(iedServer);
+        IedServer_unlockDataModel(iedServer);
 
-	/* Cleanup - free all resources */
-	IedServer_destroy(iedServer);
+        anIn1 += 0.1;
+
+        Thread_sleep(1000);
+    }
+
+    /* stop MMS server - close TCP server socket and all client sockets */
+    IedServer_stop(iedServer);
+
+    /* Cleanup - free all resources */
+    IedServer_destroy(iedServer);
+
+    return 0;
 } /* main() */

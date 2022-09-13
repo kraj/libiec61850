@@ -1,7 +1,7 @@
 /*
  *  iso_server_private.h
  *
- *  Copyright 2013 Michael Zillgith
+ *  Copyright 2013-2020 Michael Zillgith
  *
  *  This file is part of libIEC61850.
  *
@@ -24,43 +24,53 @@
 #ifndef ISO_SERVER_PRIVATE_H_
 #define ISO_SERVER_PRIVATE_H_
 
+#include "tls_config.h"
 #include "hal_socket.h"
-#include "tls_api.h"
 
-IsoConnection
-IsoConnection_create(Socket socket, IsoServer isoServer);
+LIB61850_INTERNAL IsoConnection
+IsoConnection_create(Socket socket, IsoServer isoServer, bool isSingleThread);
 
-void
+LIB61850_INTERNAL void
+IsoConnection_start(IsoConnection self);
+
+LIB61850_INTERNAL void
 IsoConnection_destroy(IsoConnection self);
 
-void
-IsoConnection_handleTcpConnection(IsoConnection self);
+LIB61850_INTERNAL void
+IsoConnection_callTickHandler(IsoConnection self);
 
-void
-IsoConnection_addHandleSet(const IsoConnection self, HandleSet handles);
+LIB61850_INTERNAL void
+IsoConnection_handleTcpConnection(IsoConnection self, bool isSingleThread);
 
-void
-private_IsoServer_increaseConnectionCounter(IsoServer self);
+#define ISO_CON_STATE_TERMINATED 2 /* connection has terminated and is ready to be destroyed */
+#define ISO_CON_STATE_RUNNING 1 /* connection is newly started */
+#define ISO_CON_STATE_STOPPED 0 /* connection is being stopped */
 
-void
-private_IsoServer_decreaseConnectionCounter(IsoServer self);
-
-int
-private_IsoServer_getConnectionCounter(IsoServer self);
+LIB61850_INTERNAL int
+IsoConnection_getState(IsoConnection self);
 
 /**
- * \brief User provided lock that will be called when higher layer (MMS) is called
+ * \brief Add the connection socket to the given HandleSet instance
  */
-void
-IsoServer_setUserLock(IsoServer self, Semaphore userLock);
+LIB61850_INTERNAL void
+IsoConnection_addToHandleSet(const IsoConnection self, HandleSet handles);
 
-void
-IsoServer_userLock(IsoServer self);
+/**
+ * \brief Remove the connection socket from the given HandleSet instance
+ */
+LIB61850_INTERNAL void
+IsoConnection_removeFromHandleSet(const IsoConnection self, HandleSet handles);
 
-void
-IsoServer_userUnlock(IsoServer self);
+LIB61850_INTERNAL void
+private_IsoServer_increaseConnectionCounter(IsoServer self);
 
-bool
+LIB61850_INTERNAL void
+private_IsoServer_decreaseConnectionCounter(IsoServer self);
+
+LIB61850_INTERNAL int
+private_IsoServer_getConnectionCounter(IsoServer self);
+
+LIB61850_INTERNAL bool
 IsoConnection_isRunning(IsoConnection self);
 
 #endif /* ISO_SERVER_PRIVATE_H_ */

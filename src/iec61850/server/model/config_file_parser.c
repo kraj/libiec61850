@@ -32,7 +32,6 @@
 
 static uint8_t lineBuffer[READ_BUFFER_MAX_SIZE];
 
-
 static int
 readLine(FileHandle fileHandle, uint8_t* buffer, int maxSize)
 {
@@ -43,6 +42,10 @@ readLine(FileHandle fileHandle, uint8_t* buffer, int maxSize)
 
     /* eat up leading cr or lf */
     while (fileReadResult > 0) {
+
+        if (bytesRead == maxSize)
+            break;
+
         fileReadResult = FileSystem_readFile(fileHandle, buffer + bufPos, 1);
 
         if (fileReadResult == 1) {
@@ -57,6 +60,10 @@ readLine(FileHandle fileHandle, uint8_t* buffer, int maxSize)
 
     if (fileReadResult > 0) {
         while (fileReadResult > 0) {
+
+            if (bytesRead == maxSize)
+                break;
+
             fileReadResult = FileSystem_readFile(fileHandle, buffer + bufPos, 1);
 
             if (fileReadResult == 1) {
@@ -70,7 +77,6 @@ readLine(FileHandle fileHandle, uint8_t* buffer, int maxSize)
             }
         }
     }
-
 
     return bytesRead;
 }
@@ -91,6 +97,24 @@ terminateString(char* string, char ch)
 }
 
 IedModel*
+ConfigFileParser_createModelFromConfigFileEx(const char* filename)
+{
+    FileHandle configFile = FileSystem_openFile((char*)filename, false);
+
+    if (configFile == NULL) {
+        if (DEBUG_IED_SERVER)
+            printf("IED_SERVER: Error opening config file!\n");
+        return NULL;
+    }
+
+    IedModel* model = ConfigFileParser_createModelFromConfigFile(configFile);
+
+    FileSystem_closeFile(configFile);
+
+    return model;
+}
+
+IedModel*
 ConfigFileParser_createModelFromConfigFile(FileHandle fileHandle)
 {
     int bytesRead = 1;
@@ -104,6 +128,7 @@ ConfigFileParser_createModelFromConfigFile(FileHandle fileHandle)
     ModelNode* currentModelNode = NULL;
     DataSet* currentDataSet = NULL;
     GSEControlBlock* currentGoCB = NULL;
+    SVControlBlock* currentSMVCB = NULL;
 
     char nameString[130];
     char nameString2[130];
@@ -145,7 +170,7 @@ ConfigFileParser_createModelFromConfigFile(FileHandle fileHandle)
                     if (StringUtils_startsWith((char*) lineBuffer, "LD")) {
                         indendation = 2;
 
-                        if (sscanf((char*) lineBuffer, "LD(%s)", nameString) < 1)
+                        if (sscanf((char*) lineBuffer, "LD(%129s)", nameString) < 1)
                             goto exit_error;
 
                         terminateString(nameString, ')');
@@ -159,7 +184,7 @@ ConfigFileParser_createModelFromConfigFile(FileHandle fileHandle)
                     if (StringUtils_startsWith((char*) lineBuffer, "LN")) {
                         indendation = 3;
 
-                        if (sscanf((char*) lineBuffer, "LN(%s)", nameString) < 1)
+                        if (sscanf((char*) lineBuffer, "LN(%129s)", nameString) < 1)
                             goto exit_error;
 
                         terminateString(nameString, ')');
@@ -175,7 +200,7 @@ ConfigFileParser_createModelFromConfigFile(FileHandle fileHandle)
 
                         int arrayElements = 0;
 
-                        sscanf((char*) lineBuffer, "DO(%s %i)", nameString, &arrayElements);
+                        sscanf((char*) lineBuffer, "DO(%129s %i)", nameString, &arrayElements);
 
                         currentModelNode = (ModelNode*)
                                 DataObject_create(nameString, (ModelNode*) currentLN, arrayElements);
@@ -183,7 +208,7 @@ ConfigFileParser_createModelFromConfigFile(FileHandle fileHandle)
                     else if (StringUtils_startsWith((char*) lineBuffer, "DS")) {
                         indendation = 4;
 
-                        sscanf((char*) lineBuffer, "DS(%s)", nameString);
+                        sscanf((char*) lineBuffer, "DS(%129s)", nameString);
                         terminateString(nameString, ')');
 
                         currentDataSet = DataSet_create(nameString, currentLN);
@@ -196,7 +221,7 @@ ConfigFileParser_createModelFromConfigFile(FileHandle fileHandle)
                         uint32_t bufTm;
                         uint32_t intgPd;
 
-                        int matchedItems = sscanf((char*) lineBuffer, "RC(%s %s %i %s %u %i %i %u %u)",
+                        int matchedItems = sscanf((char*) lineBuffer, "RC(%129s %129s %i %129s %u %i %i %u %u)",
                                 nameString, nameString2, &isBuffered, nameString3, &confRef,
                                 &trgOps, &options, &bufTm, &intgPd);
 
@@ -221,7 +246,7 @@ ConfigFileParser_createModelFromConfigFile(FileHandle fileHandle)
                         int logEna;
                         int withReasonCode;
 
-                        int matchedItems = sscanf((char*) lineBuffer, "LC(%s %s %s %u %u %i %i)",
+                        int matchedItems = sscanf((char*) lineBuffer, "LC(%129s %129s %129s %u %u %i %i)",
                                 nameString, nameString2, nameString3, &trgOps, &intgPd, &logEna, &withReasonCode);
 
                         if (matchedItems < 7) goto exit_error;
@@ -237,7 +262,7 @@ ConfigFileParser_createModelFromConfigFile(FileHandle fileHandle)
                         LogControlBlock_create(nameString, currentLN, dataSet, logRef, trgOps, intgPd, logEna, withReasonCode);
                     }
                     else if (StringUtils_startsWith((char*) lineBuffer, "LOG")) {
-                        int matchedItems = sscanf((char*) lineBuffer, "LOG(%s)", nameString);
+                        int matchedItems = sscanf((char*) lineBuffer, "LOG(%129s)", nameString);
 
                         if (matchedItems < 1) goto exit_error;
 
@@ -252,7 +277,7 @@ ConfigFileParser_createModelFromConfigFile(FileHandle fileHandle)
                         int minTime = -1;
                         int maxTime = -1;
 
-                        int matchedItems = sscanf((char*) lineBuffer, "GC(%s %s %s %u %i %i %i)",
+                        int matchedItems = sscanf((char*) lineBuffer, "GC(%129s %129s %129s %u %i %i %i)",
                                 nameString, nameString2, nameString3, &confRef, &fixedOffs, &minTime, &maxTime);
 
                         if (matchedItems < 5) goto exit_error;
@@ -263,12 +288,29 @@ ConfigFileParser_createModelFromConfigFile(FileHandle fileHandle)
                         indendation = 4;
 
                     }
+                    else if (StringUtils_startsWith((char*) lineBuffer, "SMVC")) {
+                        uint32_t confRev;
+                        int smpMod;
+                        int smpRate;
+                        int optFlds;
+                        int isUnicast;
+
+                        int matchedItems = sscanf((char*) lineBuffer, "SMVC(%129s %129s %129s %u %i %i %i %i)",
+                                nameString, nameString2, nameString3, &confRev, &smpMod, &smpRate, &optFlds, &isUnicast);
+
+                        if (matchedItems < 5) goto exit_error;
+
+                        currentSMVCB = SVControlBlock_create(nameString, currentLN, nameString2, nameString3, confRev, smpMod, smpRate, optFlds, (bool) isUnicast);
+
+                        indendation = 4;
+
+                    }
 #if (CONFIG_IEC61850_SETTING_GROUPS == 1)
                     else if (StringUtils_startsWith((char*) lineBuffer, "SG")) {
 
                         if (strcmp(currentLN->name, "LLN0") != 0) {
                             if (DEBUG_IED_SERVER)
-                                printf("Setting group control is not defined in LLN0\n");
+                                printf("IED_SERVER: Setting group control is not defined in LLN0\n");
 
                             goto exit_error;
                         }
@@ -299,7 +341,7 @@ ConfigFileParser_createModelFromConfigFile(FileHandle fileHandle)
 
                         int arrayElements = 0;
 
-                        int matchedItems = sscanf((char*) lineBuffer, "DO(%s %i)", nameString, &arrayElements);
+                        int matchedItems = sscanf((char*) lineBuffer, "DO(%129s %i)", nameString, &arrayElements);
 
                         if (matchedItems != 2) goto exit_error;
 
@@ -314,7 +356,7 @@ ConfigFileParser_createModelFromConfigFile(FileHandle fileHandle)
                         int triggerOptions = 0;
                         uint32_t sAddr = 0;
 
-                        sscanf((char*) lineBuffer, "DA(%s %i %i %i %i %u)", nameString, &arrayElements,  &attributeType, &functionalConstraint, &triggerOptions, &sAddr);
+                        sscanf((char*) lineBuffer, "DA(%129s %i %i %i %i %u)", nameString, &arrayElements,  &attributeType, &functionalConstraint, &triggerOptions, &sAddr);
 
                         DataAttribute* dataAttribute = DataAttribute_create(nameString, currentModelNode,
                                 (DataAttributeType) attributeType, (FunctionalConstraint) functionalConstraint, triggerOptions, arrayElements, sAddr);
@@ -393,11 +435,19 @@ ConfigFileParser_createModelFromConfigFile(FileHandle fileHandle)
                                 break;
 
                             case IEC61850_OPTFLDS:
+                                {
+                                    int value;
+                                    if (sscanf(valueIndicator + 1, "%i", &value) != 1) goto exit_error;
+                                    dataAttribute->mmsValue = MmsValue_newBitString(-10);
+                                    MmsValue_setBitStringFromIntegerBigEndian(dataAttribute->mmsValue, value);
+                                }
+                                break;
+
                             case IEC61850_TRGOPS:
                                 {
                                     int value;
                                     if (sscanf(valueIndicator + 1, "%i", &value) != 1) goto exit_error;
-                                    dataAttribute->mmsValue = MmsValue_newBitString(2);
+                                    dataAttribute->mmsValue = MmsValue_newBitString(-6);
                                     MmsValue_setBitStringFromIntegerBigEndian(dataAttribute->mmsValue, value);
                                 }
                                 break;
@@ -408,7 +458,7 @@ ConfigFileParser_createModelFromConfigFile(FileHandle fileHandle)
                             }
                         }
 
-                        int lineLength = strlen((char*) lineBuffer);
+                        int lineLength = (int) strlen((char*) lineBuffer);
 
                         if (lineBuffer[lineLength - 1] == '{') {
                             indendation++;
@@ -416,19 +466,47 @@ ConfigFileParser_createModelFromConfigFile(FileHandle fileHandle)
                         }
                     }
                     else if (StringUtils_startsWith((char*) lineBuffer, "DE")) {
-                        sscanf((char*) lineBuffer, "DE(%s)", nameString);
-                        terminateString(nameString, ')');
+                        char* start = strchr((char*) lineBuffer, '(');
 
-                        DataSetEntry_create(currentDataSet, nameString, -1, NULL);
+                        if (start) {
+                            start++;
+
+                            StringUtils_copyStringMax(nameString, 130, start);
+
+                            terminateString(nameString, ')');
+
+                            int indexVal = -1;
+                            char* componentVal = NULL;
+
+                            /* check for index */
+                            char* sep = strchr(nameString, ' ');
+
+                            if (sep) {
+                                char* indexStr = sep + 1;
+                                *sep = 0;
+
+                                /* check for component */
+                                sep = strchr(indexStr, ' ');
+
+                                if (sep) {
+                                    componentVal = sep + 1;
+                                    *sep = 0;
+                                }
+
+                                indexVal = atoi(indexStr);
+                            }
+
+                            DataSetEntry_create(currentDataSet, nameString, indexVal, componentVal);
+                        }
                     }
                     else if (StringUtils_startsWith((char*) lineBuffer, "PA")) {
                         uint32_t vlanPrio;
                         uint32_t vlanId;
                         uint32_t appId;
 
-                        int matchedItems = sscanf((char*) lineBuffer, "PA(%u %u %u %s)", &vlanPrio, &vlanId, &appId, nameString);
+                        int matchedItems = sscanf((char*) lineBuffer, "PA(%u %u %u %129s)", &vlanPrio, &vlanId, &appId, nameString);
 
-                        if ((matchedItems != 4) || (currentGoCB == NULL)) goto exit_error;
+                        if ((matchedItems != 4) || ((currentGoCB == NULL) && (currentSMVCB == NULL))) goto exit_error;
 
                         terminateString(nameString, ')');
 
@@ -442,8 +520,13 @@ ConfigFileParser_createModelFromConfigFile(FileHandle fileHandle)
                                 PhyComAddress_create((uint8_t) vlanPrio, (uint16_t) vlanId, (uint16_t) appId,
                                         (uint8_t*) nameString2);
 
-                        GSEControlBlock_addPhyComAddress(currentGoCB, dstAddress);
+                        if (currentGoCB) {
+                            GSEControlBlock_addPhyComAddress(currentGoCB, dstAddress);
+                        }
 
+                        if (currentSMVCB) {
+                            SVControlBlock_addPhyComAddress(currentSMVCB, dstAddress);
+                        }
                     }
                     else
                         goto exit_error;
@@ -459,7 +542,7 @@ ConfigFileParser_createModelFromConfigFile(FileHandle fileHandle)
                     indendation = 1;
                 }
                 else if (StringUtils_startsWith((char*) lineBuffer, "MODEL(")) {
-                    sscanf((char*) lineBuffer, "MODEL(%s)", nameString);
+                    sscanf((char*) lineBuffer, "MODEL(%129s)", nameString);
                     terminateString(nameString, ')');
                     model = IedModel_create(nameString);
                     stateInModel = true;
@@ -475,7 +558,8 @@ ConfigFileParser_createModelFromConfigFile(FileHandle fileHandle)
 
 exit_error:
     if (DEBUG_IED_SERVER)
-        printf("IED_SERVER: error parsing line %i (indendation level = %i)\n", currentLine, indendation);
+        printf("IED_SERVER: error parsing line %i (indentation level = %i)\n", currentLine, indendation);
+
     IedModel_destroy(model);
     return NULL;
 }

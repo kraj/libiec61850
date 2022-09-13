@@ -95,11 +95,27 @@ editSgConfirmedHandler(void* parameter, SettingGroupControlBlock* sgcb,
     }
 }
 
+static MmsDataAccessError
+readAccessHandler(LogicalDevice* ld, LogicalNode* ln, DataObject* dataObject, FunctionalConstraint fc, ClientConnection connection, void* parameter)
+{
+    void* securityToken = ClientConnection_getSecurityToken(connection);
+
+    printf("Read access to %s/%s.%s\n", ld->name, ln->name, dataObject->name);
+
+    return DATA_ACCESS_ERROR_SUCCESS;
+}
 
 int 
 main(int argc, char** argv)
 {
-    iedServer = IedServer_create(&iedModel);
+    IedServerConfig config = IedServerConfig_create();
+
+    //IedServerConfig_enableEditSG(config, false);
+    IedServerConfig_enableResvTmsForSGCB(config, false);
+
+    iedServer = IedServer_createWithConfig(&iedModel, NULL, config);
+
+    IedServerConfig_destroy(config);
 
     LogicalDevice* ld = IEDMODEL_PROT;
 
@@ -110,6 +126,8 @@ main(int argc, char** argv)
     IedServer_setActiveSettingGroupChangedHandler(iedServer, sgcb, activeSgChangedHandler, NULL);
     IedServer_setEditSettingGroupChangedHandler(iedServer, sgcb, editSgChangedHandler, NULL);
     IedServer_setEditSettingGroupConfirmationHandler(iedServer, sgcb, editSgConfirmedHandler, NULL);
+
+    IedServer_setReadAccessHandler(iedServer, readAccessHandler, NULL);
 
     /* MMS server will be instructed to start listening to client connections. */
     IedServer_start(iedServer, 102);

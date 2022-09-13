@@ -17,6 +17,7 @@
 #include <string.h>	/* For memcpy(3) */
 
 #include "stack_config.h"
+#include "libiec61850_platform_includes.h"
 #if CONFIG_INCLUDE_PLATFORM_SPECIFIC_HEADERS
 #include "libiec61850_platform_specific.h"
 #else
@@ -46,12 +47,14 @@
 #define inline __inline
 #endif
 #define	ssize_t		SSIZE_T
-//typedef	char		int8_t;
-//typedef	short		int16_t;
-//typedef	int		int32_t;
-//typedef	unsigned char	uint8_t;
-//typedef	unsigned short	uint16_t;
-//typedef	unsigned int	uint32_t;
+#if 0
+typedef	char		int8_t;
+typedef	short		int16_t;
+typedef	int		int32_t;
+typedef	unsigned char	uint8_t;
+typedef	unsigned short	uint16_t;
+typedef	unsigned int	uint32_t;
+#endif
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <float.h>

@@ -88,7 +88,7 @@ clientAuthenticator(void* parameter, AcseAuthenticationParameter authParameter, 
 }
 
 static CheckHandlerResult
-performCheckHandler (void* parameter, MmsValue* ctlVal, bool test, bool interlockCheck, ClientConnection connection)
+performCheckHandler (ControlAction action, void* parameter, MmsValue* ctlVal, bool test, bool interlockCheck, ClientConnection connection)
 {
     void* securityToken = ClientConnection_getSecurityToken(connection);
 
@@ -99,7 +99,7 @@ performCheckHandler (void* parameter, MmsValue* ctlVal, bool test, bool interloc
 }
 
 static void
-controlHandlerForBinaryOutput(void* parameter, MmsValue* value, bool test)
+controlHandlerForBinaryOutput(ControlAction action, void* parameter, MmsValue* value, bool test)
 {
     MmsValue* timeStamp = MmsValue_newUtcTimeByMsTime(Hal_getTimeInMs());
 
@@ -125,6 +125,40 @@ controlHandlerForBinaryOutput(void* parameter, MmsValue* value, bool test)
 
     MmsValue_delete(timeStamp);
 }
+
+
+static MmsDataAccessError
+writeAccessHandler (DataAttribute* dataAttribute, MmsValue* value, ClientConnection connection, void* parameter)
+{
+    void* securityToken = ClientConnection_getSecurityToken(connection);
+
+    if (dataAttribute == IEDMODEL_GenericIO_LLN0_ModAuto_setVal)
+        printf("Write access to LLN0.ModAuto.setVal: %i\n", MmsValue_getBoolean(value));
+
+    if (securityToken != password2) {
+        printf("  Access denied\n");
+        return DATA_ACCESS_ERROR_OBJECT_ACCESS_DENIED;
+    }
+
+    return DATA_ACCESS_ERROR_SUCCESS;
+}
+
+static MmsDataAccessError
+readAccessHandler(LogicalDevice* ld, LogicalNode* ln, DataObject* dataObject, FunctionalConstraint fc, ClientConnection connection, void* parameter)
+{
+    void* securityToken = ClientConnection_getSecurityToken(connection);
+
+    if (securityToken != password2) {
+
+        if ((dataObject == IEDMODEL_GenericIO_GGIO1_Ind1) || (dataObject == IEDMODEL_GenericIO_GGIO1_Ind2)) {
+            printf("  Access denied\n");
+            return DATA_ACCESS_ERROR_OBJECT_ACCESS_DENIED;
+        }
+    }
+
+    return DATA_ACCESS_ERROR_SUCCESS;
+}
+
 
 int main(int argc, char** argv) {
 
@@ -153,6 +187,15 @@ int main(int argc, char** argv) {
     IedServer_setControlHandler(iedServer, IEDMODEL_GenericIO_GGIO1_SPCSO4,
             (ControlHandler) controlHandlerForBinaryOutput, IEDMODEL_GenericIO_GGIO1_SPCSO4);
 
+    /* Allow only write access to settings that have a handler */
+    IedServer_setWriteAccessPolicy(iedServer, IEC61850_FC_SP, ACCESS_POLICY_DENY);
+
+    /* Set write access handler */
+    IedServer_handleWriteAccess(iedServer, IEDMODEL_GenericIO_LLN0_ModAuto_setVal, writeAccessHandler, NULL);
+
+    /* Set read access handler */
+    IedServer_setReadAccessHandler(iedServer, readAccessHandler, NULL);
+
 	/* MMS server will be instructed to start listening to client connections. */
 	IedServer_start(iedServer, 102);
 
@@ -174,4 +217,5 @@ int main(int argc, char** argv) {
 
 	/* Cleanup - free all resources */
 	IedServer_destroy(iedServer);
+  return 0;
 } /* main() */

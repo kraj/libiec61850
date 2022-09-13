@@ -8,19 +8,78 @@
  *
  * Note: intended to be used with server_example3 or server_example_files
  *
- * Note: DOES NOT WORK WITH VISUAL STUDIO because of libgen.h
- *
  */
 
 #include "iec61850_client.h"
 
 #include <stdlib.h>
 #include <stdio.h>
+#ifdef _WIN32
+#include <Windows.h>
+#else
 #include <libgen.h>
+#endif
+
+#ifdef _WIN32
+static char _dirname[1000];
+
+static char*
+dirname(char* path)
+{
+    char* lastSep = NULL;
+
+    int len = strlen(path);
+    int i = 0;
+
+    while (i < len) {
+        if (path[i] == '/' || path[i] == ':' || path[i] == '\\')
+            lastSep = path + i;
+
+        i++;
+    }
+
+    if (lastSep) {
+        strcpy(_dirname, path);
+        _dirname[lastSep - path] = 0;
+    }
+    else
+        strcpy(_dirname, "");
+
+    return _dirname;
+}
+
+
+static char _basename[1000];
+
+static char*
+basename(char* path)
+{
+    char* lastSep = NULL;
+
+    int len = strlen(path);
+    int i = 0;
+
+    while (i < len) {
+        if (path[i] == '/' || path[i] == ':' || path[i] == '\\')
+            lastSep = path + i;
+
+        i++;
+    }
+
+    if (lastSep)
+        strcpy(_basename, lastSep + 1);
+    else
+        strcpy(_basename, path);
+
+    return _basename;
+}
+
+#endif
 
 static char* hostname = "localhost";
 static int tcpPort = 102;
 static char* filename = NULL;
+static bool singleRequest = false;
 
 typedef enum {
     FileOperationType_None = 0,
@@ -42,13 +101,14 @@ downloadHandler(void* parameter, uint8_t* buffer, uint32_t bytesRead)
 
     printf("received %i bytes\n", bytesRead);
 
-    if (fwrite(buffer, bytesRead, 1, fp) == 1)
-        return true;
-    else {
-        printf("Failed to write local file!\n");
-        return false;
+    if (bytesRead > 0) {
+        if (fwrite(buffer, bytesRead, 1, fp) != 1) {
+            printf("Failed to write local file!\n");
+            return false;
+        }
     }
 
+    return true;
 }
 
 static void
@@ -58,8 +118,10 @@ printHelp()
     printf("  Options:\n");
     printf("    -h <hostname/IP>\n");
     printf("    -p portnumber\n");
+    printf("    -s single request for show (sub) directory (ignore morefollows");
     printf("  Operations\n");
     printf("     dir - show directory\n");
+    printf("     subdir <dirname> - show sub directory\n");
     printf("     info <filename> - show file info\n");
     printf("     del <filename> - delete file\n");
     printf("     get <filename> - get file\n");
@@ -81,12 +143,19 @@ parseOptions(int argc, char** argv)
         else if (strcmp(argv[currentArgc], "-p") == 0) {
             tcpPort = atoi(argv[++currentArgc]);
         }
+        else if (strcmp(argv[currentArgc], "-s") == 0) {
+            singleRequest = true;
+        }
         else if (strcmp(argv[currentArgc], "del") == 0) {
             operation = FileOperationType_Del;
             filename = argv[++currentArgc];
         }
         else if (strcmp(argv[currentArgc], "dir") == 0) {
             operation = FileOperationType_Dir;
+        }
+        else if (strcmp(argv[currentArgc], "subdir") == 0) {
+            operation = FileOperationType_Dir;
+            filename = argv[++currentArgc];
         }
         else if (strcmp(argv[currentArgc], "info") == 0) {
             operation = FileOperationType_Info;
@@ -116,9 +185,15 @@ showDirectory(IedConnection con)
 {
     IedClientError error;
 
+    bool moreFollows = false;
+
     /* Get the root directory */
-    LinkedList rootDirectory =
-            IedConnection_getFileDirectory(con, &error, NULL);
+    LinkedList rootDirectory;
+
+    if (singleRequest)
+        rootDirectory = IedConnection_getFileDirectoryEx(con, &error, filename, NULL, &moreFollows);
+    else
+        rootDirectory = IedConnection_getFileDirectory(con, &error, filename);
 
     if (error != IED_ERROR_OK) {
         printf("Error retrieving file directory\n");
@@ -137,6 +212,9 @@ showDirectory(IedConnection con)
 
         LinkedList_destroyDeep(rootDirectory, (LinkedListValueDeleteFunction) FileDirectoryEntry_destroy);
     }
+
+    if (moreFollows)
+        printf("\n- MORE FILES AVAILABLE -\n");
 }
 
 void
@@ -148,7 +226,7 @@ getFile(IedConnection con)
 
     char* localFilename = basename(bname);
 
-    FILE* fp = fopen(localFilename, "w");
+    FILE* fp = fopen(localFilename, "wb");
 
     if (fp != NULL) {
 
@@ -260,6 +338,7 @@ main(int argc, char** argv)
     }
 
     IedConnection_destroy(con);
+    return 0;
 }
 
 

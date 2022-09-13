@@ -31,7 +31,7 @@ namespace IEC61850
 	namespace Client
 	{
 
-		public class GooseControlBlock {
+		public class GooseControlBlock : IDisposable {
 		
 			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
 			static extern IntPtr ClientGooseControlBlock_create (string dataAttributeReference);
@@ -43,14 +43,14 @@ namespace IEC61850
 			static extern IntPtr IedConnection_getGoCBValues (IntPtr connection, out int error, string rcbReference, IntPtr updateRcb);
 
 			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
-			static extern void IedConnection_setGoCBValues (IntPtr connection, out int error, IntPtr rcb, UInt32 parametersMask, bool singleRequest);
+			static extern void IedConnection_setGoCBValues (IntPtr connection, out int error, IntPtr rcb, UInt32 parametersMask, [MarshalAs(UnmanagedType.I1)] bool singleRequest);
 		
 			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
 			[return: MarshalAs(UnmanagedType.I1)]
 			static extern bool ClientGooseControlBlock_getGoEna (IntPtr self);
 
 			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
-			static extern void ClientGooseControlBlock_setGoEna(IntPtr self, bool rptEna);
+			static extern void ClientGooseControlBlock_setGoEna(IntPtr self, [MarshalAs(UnmanagedType.I1)] bool rptEna);
 
 			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
 			static extern IntPtr ClientGooseControlBlock_getGoID (IntPtr self);
@@ -83,6 +83,18 @@ namespace IEC61850
 
 			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
 			static extern PhyComAddress ClientGooseControlBlock_getDstAddress (IntPtr self);
+
+			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
+			static extern IntPtr ClientGooseControlBlock_getDstAddress_addr(IntPtr self);
+
+			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
+			static extern byte ClientGooseControlBlock_getDstAddress_priority(IntPtr self);
+
+			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
+			static extern UInt16 ClientGooseControlBlock_getDstAddress_vid(IntPtr self);
+
+			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
+			static extern UInt16 ClientGooseControlBlock_getDstAddress_appid(IntPtr self);
 
 			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
 			static extern void ClientGooseControlBlock_setDstAddress (IntPtr self, PhyComAddress value);
@@ -232,7 +244,23 @@ namespace IEC61850
 
 			public PhyComAddress GetDstAddress()
 			{
-				return ClientGooseControlBlock_getDstAddress (self);
+				PhyComAddress addr = new PhyComAddress();
+
+				IntPtr value = ClientGooseControlBlock_getDstAddress_addr(self);
+
+				MmsValue mmsValue = new MmsValue(value);
+
+				byte[] dstMacAddr = mmsValue.getOctetString();
+
+				dstMacAddr.CopyTo(addr.dstAddress, 0);
+
+				addr.dstAddress = dstMacAddr;
+
+				addr.appId = ClientGooseControlBlock_getDstAddress_appid(self);
+				addr.vlanId = ClientGooseControlBlock_getDstAddress_vid(self);
+				addr.vlanPriority = ClientGooseControlBlock_getDstAddress_priority(self);
+
+				return addr;
 			}
 
 			public void SetDstAddress(PhyComAddress value)

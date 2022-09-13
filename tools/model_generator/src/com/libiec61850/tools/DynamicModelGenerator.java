@@ -3,7 +3,7 @@ package com.libiec61850.tools;
 /*
  *  DynamicModelGenerator.java
  *
- *  Copyright 2014-2016 Michael Zillgith
+ *  Copyright 2014-2020 Michael Zillgith
  *
  *  This file is part of libIEC61850.
  *
@@ -35,6 +35,7 @@ import com.libiec61850.scl.DataAttributeDefinition;
 import com.libiec61850.scl.SclParser;
 import com.libiec61850.scl.SclParserException;
 import com.libiec61850.scl.communication.ConnectedAP;
+import com.libiec61850.scl.communication.GSE;
 import com.libiec61850.scl.communication.PhyComAddress;
 import com.libiec61850.scl.model.AccessPoint;
 import com.libiec61850.scl.model.DataAttribute;
@@ -49,12 +50,15 @@ import com.libiec61850.scl.model.LogControl;
 import com.libiec61850.scl.model.LogicalDevice;
 import com.libiec61850.scl.model.LogicalNode;
 import com.libiec61850.scl.model.ReportControlBlock;
+import com.libiec61850.scl.model.ReportSettings;
+import com.libiec61850.scl.model.Services;
 import com.libiec61850.scl.model.SettingControl;
 
 public class DynamicModelGenerator {
 
     private ConnectedAP connectedAP;
     private IED ied = null;
+    private boolean hasOwner = false;
     
     public DynamicModelGenerator(InputStream stream, String icdFile, PrintStream output, String iedName, String accessPointName) 
     		throws SclParserException {
@@ -68,7 +72,17 @@ public class DynamicModelGenerator {
 
         if (ied == null)
             throw new SclParserException("No data model present in SCL file! Exit.");
-
+        
+        Services services = ied.getServices();
+        
+        if (services != null) {
+            ReportSettings rptSettings = services.getReportSettings();
+            
+            if (rptSettings != null) {
+                hasOwner = rptSettings.hasOwner();
+            }
+        }
+       
         AccessPoint accessPoint = null;
         
         if (accessPointName != null)
@@ -95,7 +109,7 @@ public class DynamicModelGenerator {
         output.println("}");
     }
 
-    private void exportLogicalNodes(PrintStream output, LogicalDevice logicalDevice) {
+    private void exportLogicalNodes(PrintStream output, LogicalDevice logicalDevice) throws SclParserException {
         for (LogicalNode logicalNode : logicalDevice.getLogicalNodes()) {
             output.print("LN(" + logicalNode.getName() + "){\n");
 
@@ -109,7 +123,7 @@ public class DynamicModelGenerator {
         return iecString.replace('.', '$');
     }
 
-    private void exportLogicalNode(PrintStream output, LogicalNode logicalNode, LogicalDevice logicalDevice) {
+    private void exportLogicalNode(PrintStream output, LogicalNode logicalNode, LogicalDevice logicalDevice)  throws SclParserException {
     	
     	for (SettingControl sgcb : logicalNode.getSettingGroupControlBlocks()) {
     		output.print("SG(" + sgcb.getActSG() + " " + sgcb.getNumOfSGs() + ")\n");
@@ -118,7 +132,7 @@ public class DynamicModelGenerator {
         for (DataObject dataObject : logicalNode.getDataObjects()) {
             output.print("DO(" + dataObject.getName() + " " + dataObject.getCount() + "){\n");
 
-            exportDataObject(output, dataObject);
+            exportDataObject(output, dataObject, false);
 
             output.println("}");
         }
@@ -153,10 +167,15 @@ public class DynamicModelGenerator {
         for (GSEControl gcb : logicalNode.getGSEControlBlocks()) {
             LogicalDevice ld = logicalNode.getParentLogicalDevice();
             
+            GSE gse = null;
             PhyComAddress gseAddress = null;
             
-            if (connectedAP != null)
-            	gseAddress = connectedAP.lookupGSEAddress(ld.getInst(), gcb.getName());
+            if (connectedAP != null) {
+                gse = connectedAP.lookupGSE(ld.getInst(), gcb.getName());
+            	
+                if (gse != null)
+                	gseAddress = gse.getAddress();
+            }
             else
             	System.out.println("WARNING: IED \"" + ied.getName() + "\" has no connected access point!");
             
@@ -170,9 +189,14 @@ public class DynamicModelGenerator {
             else
                 output.print('0');
             output.print(' ');
-            output.print(gcb.getMinTime());
-            output.print(' ');
-            output.print(gcb.getMaxTime());
+            if (gse != null) {
+	            output.print(gse.getMinTime());
+	            output.print(' ');
+	            output.print(gse.getMaxTime());
+            }
+            else {
+            	output.print("-1 -1");
+            }
             output.print(' ');
                        
             if (gseAddress == null) {
@@ -246,7 +270,13 @@ public class DynamicModelGenerator {
             output.print("- ");
         
         output.print(rcb.getConfRef() + " ");
-        output.print(rcb.getTriggerOptions().getIntValue() + " ");
+        
+        int triggerOptions = rcb.getTriggerOptions().getIntValue();
+        
+        if (hasOwner)
+            triggerOptions += 64;
+        
+        output.print(triggerOptions + " ");
         
         output.print(rcb.getOptionFields().getIntValue() + " ");
 
@@ -260,7 +290,7 @@ public class DynamicModelGenerator {
         output.println(");");
     }
 
-    private void exportDataSet(PrintStream output, DataSet dataSet, LogicalNode logicalNode) {
+    private void exportDataSet(PrintStream output, DataSet dataSet, LogicalNode logicalNode) throws SclParserException {
         output.print("DS(" + dataSet.getName() + "){\n");
         for (FunctionalConstraintData fcda : dataSet.getFcda()) {
             String mmsVariableName = "";
@@ -280,6 +310,40 @@ public class DynamicModelGenerator {
             if (fcda.getDaName() != null)
                 mmsVariableName += "$" + toMmsString(fcda.getDaName());
             
+            /* check for array index and component */
+            
+            int arrayStart = mmsVariableName.indexOf('(');
+            
+            String variableName = mmsVariableName;
+            int arrayIndex = -1;
+            String componentName = null;
+            
+            if (arrayStart != -1) {
+                variableName = mmsVariableName.substring(0, arrayStart);
+                
+                int arrayEnd = mmsVariableName.indexOf(')');
+                
+                String arrayIndexStr = mmsVariableName.substring(arrayStart + 1, arrayEnd);
+                arrayIndex = Integer.parseInt(arrayIndexStr);
+                
+                if (arrayIndex < 0) {
+                    throw new SclParserException("Array index out of range in data set entry definition");
+                }
+                
+                String componentNamePart = mmsVariableName.substring(arrayEnd + 1);
+                
+                if ((componentNamePart != null) && (componentNamePart.length() > 0)) {
+                    if (componentNamePart.charAt(0) == '$') {
+                        componentNamePart = componentNamePart.substring(1);
+                    }
+                    
+                    if ((componentNamePart != null) && (componentNamePart.length() > 0))
+                        componentName = componentNamePart;
+                }
+            }
+            
+            /* check for LD name */
+            
             String logicalDeviceName = null;
             
             if (fcda.getLdInstance() != null) {
@@ -289,37 +353,53 @@ public class DynamicModelGenerator {
             	}
             }
             
+            if (logicalDeviceName != null)
+                variableName = logicalDeviceName + "/" + variableName;
             
-            if (logicalDeviceName != null)         
-            	output.print("DE(" + logicalDeviceName + "/" + mmsVariableName + ");\n");
-            else
-            	output.print("DE(" + mmsVariableName + ");\n");
-            
+            if (variableName != null && arrayIndex != -1 && componentName != null) {
+                output.print("DE(" + variableName + " " + arrayIndex + " " + componentName + ");\n");
+            }
+            else if (variableName != null && arrayIndex != -1) {
+                output.print("DE(" + variableName + " " + arrayIndex + ");\n");
+            }
+            else if (variableName != null) {
+                output.print("DE(" + variableName + ");\n");
+            }            
         }
         output.println("}");
     }
 
-    private void exportDataObject(PrintStream output, DataObject dataObject) {
+    private void exportDataObject(PrintStream output, DataObject dataObject, boolean isTransient) {
+        
+        if (dataObject.isTransient())
+            isTransient = true;
+        
         for (DataObject subDataObject : dataObject.getSubDataObjects()) {
             output.print("DO(" + subDataObject.getName() + " " + subDataObject.getCount() + "){\n");
 
-            exportDataObject(output, subDataObject);
+            exportDataObject(output, subDataObject, isTransient);
 
             output.println("}");
         }
 
         for (DataAttribute dataAttribute : dataObject.getDataAttributes()) {
-            exportDataAttribute(output, dataAttribute);
+            exportDataAttribute(output, dataAttribute, isTransient);
         }
     }
 
-    private void exportDataAttribute(PrintStream output, DataAttribute dataAttribute) {
+    private void exportDataAttribute(PrintStream output, DataAttribute dataAttribute, boolean isTransient) {
 
         output.print("DA(" + dataAttribute.getName() + " ");
         output.print(dataAttribute.getCount() + " ");
         output.print(dataAttribute.getType().getIntValue() + " ");
         output.print(dataAttribute.getFc().getIntValue() + " ");
-        output.print(dataAttribute.getTriggerOptions().getIntValue() + " ");
+        
+        int trgOpsVal = dataAttribute.getTriggerOptions().getIntValue();
+        
+        if (isTransient)
+            trgOpsVal += 128;
+        
+        output.print(trgOpsVal + " ");
         
         Long sAddr = null;
         
@@ -401,7 +481,7 @@ public class DynamicModelGenerator {
             output.println("{");
 
             for (DataAttribute subDataAttribute : dataAttribute.getSubDataAttributes()) {
-                exportDataAttribute(output, subDataAttribute);
+                exportDataAttribute(output, subDataAttribute, isTransient);
             }
 
             output.println("}");

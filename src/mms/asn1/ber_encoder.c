@@ -37,15 +37,15 @@ BerEncoder_encodeLength(uint32_t length, uint8_t* buffer, int bufPos)
     else if (length < 65535) {
         buffer[bufPos++] = 0x82;
 
-        buffer[bufPos++] = length / 256;
-        buffer[bufPos++] = length % 256;
+        buffer[bufPos++] = (uint8_t) (length / 256);
+        buffer[bufPos++] = (uint8_t) (length % 256);
     }
     else {
         buffer[bufPos++] = 0x83;
 
-        buffer[bufPos++] = length / 0x10000;
-        buffer[bufPos++] = (length & 0xffff) / 0x100;
-        buffer[bufPos++] = length % 256;
+        buffer[bufPos++] = (uint8_t) (length / 0x10000);
+        buffer[bufPos++] = (uint8_t) ((length & 0xffff) / 0x100);
+        buffer[bufPos++] = (uint8_t) (length % 256);
     }
 
     return bufPos;
@@ -67,7 +67,7 @@ BerEncoder_encodeBoolean(uint8_t tag, bool value, uint8_t* buffer, int bufPos)
     buffer[bufPos++] = 1;
 
     if (value)
-        buffer[bufPos++] = 0xff;
+        buffer[bufPos++] = 0x01;
     else
         buffer[bufPos++] = 0x00;
 
@@ -80,13 +80,13 @@ BerEncoder_encodeStringWithTag(uint8_t tag, const char* string, uint8_t* buffer,
     buffer[bufPos++] = tag;
 
     if (string != NULL) {
-        int length = strlen(string);
+        int length = (int) strlen(string);
 
-        bufPos = BerEncoder_encodeLength(length, buffer, bufPos);
+        bufPos = BerEncoder_encodeLength((uint32_t) length, buffer, bufPos);
 
         int i;
         for (i = 0; i < length; i++) {
-            buffer[bufPos++] = string[i];
+            buffer[bufPos++] = (uint8_t) string[i];
         }
     }
     else
@@ -181,20 +181,17 @@ void
 BerEncoder_revertByteOrder(uint8_t* octets, const int size)
 {
     int i;
-    uint8_t temp;
 
     for (i = 0; i < size / 2; i++) {
-        temp = octets[i];
+        uint8_t temp = octets[i];
         octets[i] = octets[(size - 1) - i];
         octets[(size - 1) - i] = temp;
     }
 }
 
-
 int
 BerEncoder_compressInteger(uint8_t* integer, int originalSize)
 {
-
     uint8_t* integerEnd = integer + originalSize - 1;
     uint8_t* bytePosition;
 
@@ -205,7 +202,7 @@ BerEncoder_compressInteger(uint8_t* integer, int originalSize)
                 continue;
         }
         else if (bytePosition[0] == 0xff) {
-            if (bytePosition[1] & 0x80)
+            if ((bytePosition[1] & 0x80) == 0x80)
                 continue;
         }
 
@@ -317,8 +314,7 @@ int
 BerEncoder_encodeFloat(uint8_t* floatValue, uint8_t formatWidth, uint8_t exponentWidth,
         uint8_t* buffer, int bufPos)
 {
-    //TODO operate on encoding buffer directly
-    uint8_t valueBuffer[9];
+    uint8_t* valueBuffer = buffer + bufPos;
 
     int byteSize = formatWidth / 8;
 
@@ -333,9 +329,7 @@ BerEncoder_encodeFloat(uint8_t* floatValue, uint8_t formatWidth, uint8_t exponen
     BerEncoder_revertByteOrder(valueBuffer + 1, byteSize);
 #endif
 
-    for (i = 0; i < byteSize + 1; i++) {
-        buffer[bufPos++] = valueBuffer[i];
-    }
+    bufPos = bufPos + 1 + byteSize;
 
     return bufPos;
 }
@@ -400,7 +394,19 @@ BerEncoder_encodeOIDToBuffer(const char* oidString, uint8_t* buffer, int maxBufL
 
     int x = atoi(oidString);
 
+    char sepChar = '.';
+
     const char* separator = strchr(oidString, '.');
+
+    if (separator == NULL) {
+        sepChar = ',';
+        separator = strchr(oidString, ',');
+    }
+
+    if (separator == NULL) {
+        sepChar = ' ';
+        separator = strchr(oidString, ' ');
+    }
 
     if (separator == NULL) return 0;
 
@@ -416,36 +422,42 @@ BerEncoder_encodeOIDToBuffer(const char* oidString, uint8_t* buffer, int maxBufL
     encodedBytes++;
 
     while (1) {
-        separator = strchr(separator + 1, '.');
+        separator = strchr(separator + 1, sepChar);
 
         if (separator == NULL)
             break;
 
         val = atoi(separator + 1);
 
-        int requiredBytes = 0;
+        if (val == 0) {
+            buffer[encodedBytes++] = 0;
+        }
+        else {
+            int requiredBytes = 0;
+            int val2 = val;
 
-        int val2 = val;
-        while (val2 > 0) {
-            requiredBytes++;
-            val2 = val2 >> 7;
+            while (val2 > 0) {
+                requiredBytes++;
+                val2 = val2 >> 7;
+            }
+
+            while (requiredBytes > 0) {
+                val2 = val >> (7 * (requiredBytes - 1));
+
+                val2 = val2 & 0x7f;
+
+                if (requiredBytes > 1)
+                    val2 += 128;
+
+                if (encodedBytes == maxBufLen)
+                    return 0;
+
+                buffer[encodedBytes++] = (uint8_t) val2;
+
+                requiredBytes--;
+            }
         }
 
-        while (requiredBytes > 0) {
-            val2 = val >> (7 * (requiredBytes - 1));
-
-            val2 = val2 & 0x7f;
-
-            if (requiredBytes > 1)
-                val2 += 128;
-
-            if (encodedBytes == maxBufLen)
-                return 0;
-
-            buffer[encodedBytes++] = (uint8_t) val2;
-
-            requiredBytes--;
-        }
     }
 
     return encodedBytes;

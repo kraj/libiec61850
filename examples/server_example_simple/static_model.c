@@ -1,9 +1,9 @@
 /*
  * static_model.c
  *
- * automatically generated from sampleModel_with_dataset.icd
+ * automatically generated from sampleModel_with_dataset.cid
  */
-#include "../server_example_simple/static_model.h"
+#include "static_model.h"
 
 static void initializeValues();
 
@@ -17,7 +17,7 @@ extern DataSetEntry iedModelds_Device1_LLN0_dataset1_fcda2;
 DataSetEntry iedModelds_Device1_LLN0_dataset1_fcda0 = {
   "Device1",
   false,
-  "LLN0$ST$Mod$q",
+  "LLN0$ST$Mod$q", 
   -1,
   NULL,
   NULL,
@@ -27,7 +27,7 @@ DataSetEntry iedModelds_Device1_LLN0_dataset1_fcda0 = {
 DataSetEntry iedModelds_Device1_LLN0_dataset1_fcda1 = {
   "Device1",
   false,
-  "MMXU1$ST$Mod$q",
+  "MMXU1$ST$Mod$q", 
   -1,
   NULL,
   NULL,
@@ -37,7 +37,7 @@ DataSetEntry iedModelds_Device1_LLN0_dataset1_fcda1 = {
 DataSetEntry iedModelds_Device1_LLN0_dataset1_fcda2 = {
   "Device1",
   false,
-  "MMXU1$CF$Mod$ctlModel",
+  "MMXU1$CF$Mod$ctlModel", 
   -1,
   NULL,
   NULL,
@@ -1590,7 +1590,7 @@ DataAttribute iedModel_Device1_MMXU2_TotW_t = {
 
 extern ReportControlBlock iedModel_Device1_LLN0_report0;
 
-ReportControlBlock iedModel_Device1_LLN0_report0 = {&iedModel_Device1_LLN0, "LLN0_Events_BuffRep01", "LLN0$RP$brcbEV1", true, "dataset1", 1, 25, 239, 50, 900000, NULL};
+ReportControlBlock iedModel_Device1_LLN0_report0 = {&iedModel_Device1_LLN0, "LLN0_Events_BuffRep01", "LLN0$RP$brcbEV1", true, "dataset1", 1, 25, 239, 50, 900000, {0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}, NULL};
 
 
 

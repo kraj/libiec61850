@@ -1,7 +1,7 @@
 /*
  *  ied_connection_private.h
  *
- *  Copyright 2013 Michael Zillgith
+ *  Copyright 2013-2018 Michael Zillgith
  *
  *  This file is part of libIEC61850.
  *
@@ -28,7 +28,29 @@
 #define DEBUG_IED_CLIENT 0
 #endif
 
+#include "iec61850_common_internal.h"
+
 #include "hal_thread.h"
+
+typedef struct sIedConnectionOutstandingCall* IedConnectionOutstandingCall;
+
+struct sIedConnectionOutstandingCall {
+    bool used;
+    uint32_t invokeId;
+    void* callback;
+    void* callbackParameter;
+    void* specificParameter; /* function/service specific parameter */
+
+    union {
+        void* pointer;
+        struct {
+            uint32_t originalInvokeId;
+        } getFileInfo;
+        struct {
+            bool cont;
+        } getFileDirectory;
+    } specificParameter2; /* function/service specific parameter */
+};
 
 struct sIedConnection
 {
@@ -36,15 +58,27 @@ struct sIedConnection
     IedConnectionState state;
     LinkedList enabledReports;
     LinkedList logicalDevices;
+
+    Semaphore clientControlsLock;
     LinkedList clientControls;
+
     LastApplError lastApplError;
 
     Semaphore stateMutex;
     Semaphore reportHandlerMutex;
 
+    Semaphore outstandingCallsLock;
+    IedConnectionOutstandingCall outstandingCalls;
+
     IedConnectionClosedHandler connectionCloseHandler;
     void* connectionClosedParameter;
+
+    IedConnection_StateChangedHandler connectionStateChangedHandler;
+    void* connectionStateChangedHandlerParameter;
+
     uint32_t connectionTimeout;
+
+    uint8_t timeQuality;
 };
 
 struct sClientReportControlBlock {
@@ -69,52 +103,58 @@ struct sClientReportControlBlock {
     MmsValue* owner;
 };
 
-IedClientError
-private_IedConnection_mapMmsErrorToIedError(MmsError mmsError);
+LIB61850_INTERNAL bool
+iedConnection_doesControlObjectMatch(const char* objRef, const char* cntrlObj);
 
-bool
-private_IedConnection_doesControlObjectMatch(const char* objRef, const char* cntrlObj);
+LIB61850_INTERNAL void
+iedConnection_addControlClient(IedConnection self, ControlObjectClient control);
 
-void
-private_IedConnection_addControlClient(IedConnection self, ControlObjectClient control);
+LIB61850_INTERNAL void
+iedConnection_removeControlClient(IedConnection self, ControlObjectClient control);
 
-void
-private_IedConnection_removeControlClient(IedConnection self, ControlObjectClient control);
+LIB61850_INTERNAL bool
+clientReportControlBlock_updateValues(ClientReportControlBlock self, MmsValue* values);
 
-bool
-private_ClientReportControlBlock_updateValues(ClientReportControlBlock self, MmsValue* values);
+LIB61850_INTERNAL void
+iedConnection_handleReport(IedConnection self, MmsValue* value);
 
-void
-private_IedConnection_handleReport(IedConnection self, MmsValue* value);
-
-IedClientError
+LIB61850_INTERNAL IedClientError
 iedConnection_mapMmsErrorToIedError(MmsError mmsError);
 
-IedClientError
+LIB61850_INTERNAL IedClientError
 iedConnection_mapDataAccessErrorToIedError(MmsDataAccessError mmsError);
 
-ClientReport
+LIB61850_INTERNAL IedConnectionOutstandingCall
+iedConnection_allocateOutstandingCall(IedConnection self);
+
+LIB61850_INTERNAL void
+iedConnection_releaseOutstandingCall(IedConnection self, IedConnectionOutstandingCall call);
+
+LIB61850_INTERNAL IedConnectionOutstandingCall
+iedConnection_lookupOutstandingCall(IedConnection self, uint32_t invokeId);
+
+LIB61850_INTERNAL ClientReport
 ClientReport_create(void);
 
-void
+LIB61850_INTERNAL void
 ClientReport_destroy(ClientReport self);
 
-void
-private_ControlObjectClient_invokeCommandTerminationHandler(ControlObjectClient self);
+LIB61850_INTERNAL void
+controlObjectClient_invokeCommandTerminationHandler(ControlObjectClient self);
+
+LIB61850_INTERNAL void
+ControlObjectClient_setLastApplError(ControlObjectClient self, LastApplError lastAppIError);
 
 /* some declarations that are shared with server side ! */
 
-char*
-MmsMapping_getMmsDomainFromObjectReference(const char* objectReference, char* buffer);
-
-char*
+LIB61850_INTERNAL char*
 MmsMapping_createMmsVariableNameFromObjectReference(const char* objectReference, FunctionalConstraint fc, char* buffer);
 
 
-char*
+LIB61850_INTERNAL char*
 MmsMapping_varAccessSpecToObjectReference(MmsVariableAccessSpecification* varAccessSpec);
 
-MmsVariableAccessSpecification*
+LIB61850_INTERNAL MmsVariableAccessSpecification*
 MmsMapping_ObjectReferenceToVariableAccessSpec(char* objectReference);
 
 #endif /* IED_CONNECTION_PRIVATE_H_ */

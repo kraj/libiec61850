@@ -24,11 +24,11 @@ namespace example3
             {
 				IsoConnectionParameters parameters = con.GetConnectionParameters();
 
-				parameters.SetRemoteAddresses(1, new byte[] {0x00, 0x01}, new byte[] {0x00, 0x01, 0x02, 0x03});
+				parameters.SetRemoteAddresses(new byte[] { 0x00, 0x01 }, new byte[] {0x00, 0x01}, new byte[] {0x00, 0x01, 0x02, 0x03});
 
 				con.ConnectTimeout = 10000;
 
-				con.GetMmsConnection().SetLocalDetail(1200);
+                con.MaxPduSize = 1200;
 
                 con.Connect(hostname, 102);
 

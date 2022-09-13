@@ -257,10 +257,11 @@ getNameListDomainSpecific(MmsServerConnection connection, char* domainName)
 #if (MMS_DATA_SET_SERVICE == 1)
 
 static LinkedList
-createStringsFromNamedVariableList(LinkedList nameList, LinkedList variableLists)
+createStringsFromNamedVariableList(LinkedList variableLists)
 {
-    nameList = LinkedList_create();
+    LinkedList nameList = LinkedList_create();
     LinkedList variableListsElement = LinkedList_getNext(variableLists);
+
     while (variableListsElement != NULL) {
         MmsNamedVariableList variableList =
                 (MmsNamedVariableList) variableListsElement->data;
@@ -285,7 +286,7 @@ getNamedVariableListsDomainSpecific(MmsServerConnection connection, char* domain
     if (domain != NULL) {
         LinkedList variableLists = MmsDomain_getNamedVariableLists(domain);
 
-        nameList = createStringsFromNamedVariableList(nameList, variableLists);
+        nameList = createStringsFromNamedVariableList(variableLists);
     }
 
     return nameList;
@@ -300,7 +301,7 @@ getNamedVariableListsVMDSpecific(MmsServerConnection connection)
 
     LinkedList variableLists = MmsDevice_getNamedVariableLists(device);
 
-    nameList = createStringsFromNamedVariableList(nameList, variableLists);
+    nameList = createStringsFromNamedVariableList(variableLists);
 
     return nameList;
 }
@@ -313,7 +314,7 @@ getNamedVariableListAssociationSpecific(MmsServerConnection connection)
 
     LinkedList variableLists = MmsServerConnection_getNamedVariableLists(connection);
 
-    nameList = createStringsFromNamedVariableList(nameList, variableLists);
+    nameList = createStringsFromNamedVariableList(variableLists);
 
     return nameList;
 }
@@ -342,7 +343,7 @@ createNameListResponse(
         }
 
         if (startElement == NULL) {
-            mmsMsg_createServiceErrorPdu(invokeId, response, MMS_ERROR_ACCESS_OBJECT_ACCESS_UNSUPPORTED);
+            mmsMsg_createServiceErrorPdu(invokeId, response, MMS_ERROR_ACCESS_OBJECT_NON_EXISTENT);
             return;
         }
     }
@@ -437,10 +438,10 @@ mmsServer_handleGetNameListRequest(
     int objectScope = -1;
 
     char* domainId = NULL;
-    int domainIdLength;
+    int domainIdLength = 0;
 
     char* continueAfter = NULL;
-    int continueAfterLength;
+    int continueAfterLength = 0;
 
     while (bufPos < maxBufPos) {
         uint8_t tag = buffer[bufPos++];
@@ -485,6 +486,8 @@ mmsServer_handleGetNameListRequest(
                 case 0x82: /* association-specific */
                     objectScope = OBJECT_SCOPE_ASSOCIATION;
                     break;
+                case 0x00: /* indefinite length end tag -> ignore */
+                    break;
                 default:
                     mmsMsg_createMmsRejectPdu(&invokeId, MMS_ERROR_REJECT_UNRECOGNIZED_MODIFIER, response);
                     return;
@@ -496,6 +499,10 @@ mmsServer_handleGetNameListRequest(
             continueAfter = (char*) (buffer + bufPos);
             continueAfterLength = length;
             break;
+
+        case 0x00: /* indefinite length end tag -> ignore */
+            break;
+
         default:
             /* ignore unknown tag */
             break;
@@ -508,16 +515,33 @@ mmsServer_handleGetNameListRequest(
     char* continueAfterId = NULL;
 
     if (continueAfter != NULL) {
-        continueAfterId = continueAfterIdMemory;
-        memcpy(continueAfterId, continueAfter, continueAfterLength);
-        continueAfterId[continueAfterLength] = 0;
+        if (continueAfterLength < 130) {
+            continueAfterId = continueAfterIdMemory;
+            memcpy(continueAfterId, continueAfter, continueAfterLength);
+            continueAfterId[continueAfterLength] = 0;
 
-        if (DEBUG_MMS_SERVER)
-            printf("MMS_SERVER: getNameListRequest - continue after: (%s)\n", continueAfterId);
+            if (DEBUG_MMS_SERVER)
+                printf("MMS_SERVER: getNameListRequest - continue after: (%s)\n", continueAfterId);
+        }
+        else {
+            if (DEBUG_MMS_SERVER)
+                printf("MMS_SERVER: getNameListRequest - continuer after variable name too long (%i > 129)\n", continueAfterLength);
+
+            mmsMsg_createMmsRejectPdu(&invokeId, MMS_ERROR_REJECT_INVALID_PDU, response);
+            return;
+        }
     }
 
     if (objectScope == OBJECT_SCOPE_DOMAIN) {
-        char domainSpecificName[130];
+        char domainSpecificName[65];
+
+        if (domainIdLength > 64) {
+            if (DEBUG_MMS_SERVER)
+                printf("MMS_SERVER: getNameListRequest - domain name too long (%i > 64)\n", domainIdLength);
+
+            mmsMsg_createMmsRejectPdu(&invokeId, MMS_ERROR_REJECT_INVALID_PDU, response);
+            return;
+        }
 
         memcpy(domainSpecificName, domainId, domainIdLength);
         domainSpecificName[domainIdLength] = 0;
@@ -561,7 +585,7 @@ mmsServer_handleGetNameListRequest(
                 StringUtils_sortList(nameList);
 #endif
 
-                createNameListResponse(connection, invokeId, nameList, response, continueAfter);
+                createNameListResponse(connection, invokeId, nameList, response, continueAfterId);
                 LinkedList_destroy(nameList);
             }
         }
@@ -585,7 +609,7 @@ mmsServer_handleGetNameListRequest(
             StringUtils_sortList(nameList);
 #endif
 
-            createNameListResponse(connection, invokeId, nameList, response, continueAfter);
+            createNameListResponse(connection, invokeId, nameList, response, continueAfterId);
 
             LinkedList_destroyStatic(nameList);
         }
@@ -594,7 +618,7 @@ mmsServer_handleGetNameListRequest(
         else if (objectClass == OBJECT_CLASS_NAMED_VARIABLE) {
             LinkedList nameList = getNameListVMDSpecific(connection);
 
-            createNameListResponse(connection, invokeId, nameList, response, continueAfter);
+            createNameListResponse(connection, invokeId, nameList, response, continueAfterId);
 
             LinkedList_destroyStatic(nameList);
         }
@@ -608,20 +632,19 @@ mmsServer_handleGetNameListRequest(
             StringUtils_sortList(nameList);
 #endif
 
-            createNameListResponse(connection, invokeId, nameList, response, continueAfter);
+            createNameListResponse(connection, invokeId, nameList, response, continueAfterId);
 
             LinkedList_destroy(nameList);
         }
 #endif /* (MMS_DATA_SET_SERVICE == 1) */
 
         else if (objectClass == OBJECT_CLASS_JOURNAL) {
+
+            /* response with empty list */
+
             LinkedList nameList = LinkedList_create();
 
-#if (CONFIG_MMS_SORT_NAME_LIST == 1)
-            StringUtils_sortList(nameList);
-#endif
-
-            createNameListResponse(connection, invokeId, nameList, response, continueAfter);
+            createNameListResponse(connection, invokeId, nameList, response, continueAfterId);
 
             LinkedList_destroy(nameList);
         }
@@ -645,7 +668,7 @@ mmsServer_handleGetNameListRequest(
             StringUtils_sortList(nameList);
 #endif
 
-            createNameListResponse(connection, invokeId, nameList, response, continueAfter);
+            createNameListResponse(connection, invokeId, nameList, response, continueAfterId);
 
             LinkedList_destroy(nameList);
         }

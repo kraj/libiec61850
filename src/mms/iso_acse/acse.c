@@ -230,6 +230,9 @@ parseAarePdu(AcseConnection* self, uint8_t* buffer, int bufPos, int maxBufPos)
             }
             break;
 
+        case 0x00: /* indefinite length end tag -> ignore */
+            break;
+
         default: /* ignore unknown tag */
             if (DEBUG_ACSE)
                 printf("ACSE: parseAarePdu: unknown tag %02x\n", tag);
@@ -363,6 +366,9 @@ parseAarqPdu(AcseConnection* self, uint8_t* buffer, int bufPos, int maxBufPos)
             }
             break;
 
+        case 0x00: /* indefinite length end tag -> ignore */
+            break;
+
         default: /* ignore unknown tag */
             if (DEBUG_ACSE)
                 printf("ACSE: parseAarqPdu: unknown tag %02x\n", tag);
@@ -401,21 +407,18 @@ AcseConnection_init(AcseConnection* self, AcseAuthenticator authenticator, void*
 
 #if (CONFIG_MMS_SUPPORT_TLS == 1)
     self->tlsSocket = tlsSocket;
+#else
+    (void)tlsSocket;
 #endif
 
     memset(&(self->applicationReference), 0,
             sizeof(self->applicationReference));
 }
 
-void
-AcseConnection_destroy(AcseConnection* connection)
-{
-}
-
 AcseIndication
 AcseConnection_parseMessage(AcseConnection* self, ByteBuffer* message)
 {
-    AcseIndication indication;
+    AcseIndication indication = ACSE_ERROR;
 
     uint8_t* buffer = message->buffer;
 
@@ -453,6 +456,8 @@ AcseConnection_parseMessage(AcseConnection* self, ByteBuffer* message)
         break;
     case 0x64: /* A_ABORT */
         indication = ACSE_ABORT;
+        break;
+    case 0x00: /* indefinite length end tag -> ignore */
         break;
     default:
         if (DEBUG_ACSE)
@@ -567,12 +572,13 @@ AcseConnection_createAssociateRequestMessage(AcseConnection* self,
         BufferChain payload,
         AcseAuthenticationParameter authParameter)
 {
+    (void)self;
+
     assert(self != NULL);
     assert(writeBuffer != NULL);
     assert(payload != NULL);
 
     int payloadLength = payload->length;
-    int authValueLength;
     int authValueStringLength = 0;
 
     int passwordLength = 0;
@@ -623,8 +629,6 @@ AcseConnection_createAssociateRequestMessage(AcseConnection* self,
         {
             contentLength += 2;
 
-            //if (authParameter->value.password.passwordLength == 0)
-
             passwordLength = authParameter->value.password.passwordLength;
 
             authValueStringLength = BerEncoder_determineLengthSize(
@@ -632,7 +636,7 @@ AcseConnection_createAssociateRequestMessage(AcseConnection* self,
 
             contentLength += passwordLength + authValueStringLength;
 
-            authValueLength = BerEncoder_determineLengthSize(
+            int authValueLength = BerEncoder_determineLengthSize(
                     passwordLength + authValueStringLength + 1);
 
             contentLength += authValueLength;
@@ -771,6 +775,8 @@ AcseConnection_createAssociateRequestMessage(AcseConnection* self,
 void
 AcseConnection_createAbortMessage(AcseConnection* self, BufferChain writeBuffer, bool isProvider)
 {
+    (void)self;
+
     uint8_t* buffer = writeBuffer->buffer;
 
     buffer[0] = 0x64; /* [APPLICATION 4] */
@@ -791,6 +797,8 @@ AcseConnection_createAbortMessage(AcseConnection* self, BufferChain writeBuffer,
 void
 AcseConnection_createReleaseRequestMessage(AcseConnection* self, BufferChain writeBuffer)
 {
+    (void)self;
+
     uint8_t* buffer = writeBuffer->buffer;
 
     buffer[0] = 0x62;
@@ -807,6 +815,8 @@ AcseConnection_createReleaseRequestMessage(AcseConnection* self, BufferChain wri
 void
 AcseConnection_createReleaseResponseMessage(AcseConnection* self, BufferChain writeBuffer)
 {
+    (void)self;
+
     uint8_t* buffer = writeBuffer->buffer;
 
     buffer[0] = 0x63;

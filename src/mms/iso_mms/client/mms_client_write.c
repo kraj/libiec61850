@@ -1,24 +1,24 @@
 /*
  *  mms_client_write.c
  *
- *  Copyright 2013 Michael Zillgith
+ *  Copyright 2013-2018 Michael Zillgith
  *
- *	This file is part of libIEC61850.
+ *  This file is part of libIEC61850.
  *
- *	libIEC61850 is free software: you can redistribute it and/or modify
- *	it under the terms of the GNU General Public License as published by
- *	the Free Software Foundation, either version 3 of the License, or
- *	(at your option) any later version.
+ *  libIEC61850 is free software: you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation, either version 3 of the License, or
+ *  (at your option) any later version.
  *
- *	libIEC61850 is distributed in the hope that it will be useful,
- *	but WITHOUT ANY WARRANTY; without even the implied warranty of
- *	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *	GNU General Public License for more details.
+ *  libIEC61850 is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  GNU General Public License for more details.
  *
- *	You should have received a copy of the GNU General Public License
- *	along with libIEC61850.  If not, see <http://www.gnu.org/licenses/>.
+ *  You should have received a copy of the GNU General Public License
+ *  along with libIEC61850.  If not, see <http://www.gnu.org/licenses/>.
  *
- *	See COPYING file for the complete license text.
+ *  See COPYING file for the complete license text.
  */
 
 #include "libiec61850_platform_includes.h"
@@ -119,8 +119,10 @@ mmsClient_parseWriteMultipleItemsResponse(ByteBuffer* message, int32_t bufPos, M
            numberOfAccessResults++;
        }
 
-       if (itemCount != numberOfAccessResults)
-           goto exit_with_error;
+       if (itemCount != -1) {
+           if (itemCount != numberOfAccessResults)
+               goto exit_with_error;
+       }
     }
     else
        *mmsError = MMS_ERROR_PARSING_RESPONSE;
@@ -130,8 +132,12 @@ mmsClient_parseWriteMultipleItemsResponse(ByteBuffer* message, int32_t bufPos, M
 exit_with_error:
     *mmsError = MMS_ERROR_PARSING_RESPONSE;
 
-    if (accessResults != NULL)
-        LinkedList_destroyDeep(*accessResults, (LinkedListValueDeleteFunction) MmsValue_delete);
+    if (accessResults != NULL) {
+        if (*accessResults) {
+            LinkedList_destroyDeep(*accessResults, (LinkedListValueDeleteFunction) MmsValue_delete);
+            *accessResults = NULL;
+        }
+    }
 }
 
 
@@ -153,7 +159,7 @@ mmsClient_parseWriteResponse(ByteBuffer* message, int32_t bufPos, MmsError* mmsE
 
         bufPos = BerDecoder_decodeLength(buf, &length, bufPos, size);
 
-        if (bufPos == -1) {
+        if (bufPos < 0) {
             *mmsError = MMS_ERROR_PARSING_RESPONSE;
             retVal =  DATA_ACCESS_ERROR_UNKNOWN;
             goto exit_function;
@@ -169,7 +175,7 @@ mmsClient_parseWriteResponse(ByteBuffer* message, int32_t bufPos, MmsError* mmsE
         if (tag == 0x80) {
             bufPos = BerDecoder_decodeLength(buf, &length, bufPos, size);
 
-            if (bufPos == -1) {
+            if (bufPos < 0) {
                 *mmsError = MMS_ERROR_PARSING_RESPONSE;
                 retVal =  DATA_ACCESS_ERROR_UNKNOWN;
                 goto exit_function;
@@ -194,74 +200,6 @@ mmsClient_parseWriteResponse(ByteBuffer* message, int32_t bufPos, MmsError* mmsE
 exit_function:
     return retVal;
 }
-
-//TODO remove redundant code (see mms_client_read.c)
-
-static AlternateAccess_t*
-createAlternateAccess(uint32_t index, uint32_t elementCount)
-{
-    AlternateAccess_t* alternateAccess = (AlternateAccess_t*) GLOBAL_CALLOC(1, sizeof(AlternateAccess_t));
-    alternateAccess->list.count = 1;
-    alternateAccess->list.array = (struct AlternateAccess__Member**) GLOBAL_CALLOC(1, sizeof(struct AlternateAccess__Member*));
-    alternateAccess->list.array[0] = (struct AlternateAccess__Member*) GLOBAL_CALLOC(1, sizeof(struct AlternateAccess__Member));
-    alternateAccess->list.array[0]->present = AlternateAccess__Member_PR_unnamed;
-
-    alternateAccess->list.array[0]->choice.unnamed = (AlternateAccessSelection_t*) GLOBAL_CALLOC(1, sizeof(AlternateAccessSelection_t));
-
-    alternateAccess->list.array[0]->choice.unnamed->present = AlternateAccessSelection_PR_selectAccess;
-
-    if (elementCount > 0) {
-        alternateAccess->list.array[0]->choice.unnamed->choice.selectAccess.present =
-                AlternateAccessSelection__selectAccess_PR_indexRange;
-
-        INTEGER_t* asnIndex =
-            &(alternateAccess->list.array[0]->choice.unnamed->choice.selectAccess.choice.indexRange.lowIndex);
-
-        asn_long2INTEGER(asnIndex, index);
-
-        asnIndex =
-            &(alternateAccess->list.array[0]->choice.unnamed->choice.selectAccess.choice.indexRange.numberOfElements);
-
-        asn_long2INTEGER(asnIndex, elementCount);
-    }
-    else {
-        alternateAccess->list.array[0]->choice.unnamed->choice.selectAccess.present =
-                AlternateAccessSelection__selectAccess_PR_index;
-
-        INTEGER_t* asnIndex =
-            &(alternateAccess->list.array[0]->choice.unnamed->choice.selectAccess.choice.index);
-
-        asn_long2INTEGER(asnIndex, index);
-    }
-
-    return alternateAccess;
-}
-
-static void
-deleteAlternateAccess(AlternateAccess_t* alternateAccess)
-{
-    if (alternateAccess->list.array[0]->choice.unnamed->choice.selectAccess.choice.indexRange.lowIndex.buf != NULL) {
-         GLOBAL_FREEMEM(alternateAccess->list.array[0]->choice.unnamed->choice.selectAccess.choice.indexRange.lowIndex.buf);
-         alternateAccess->list.array[0]->choice.unnamed->choice.selectAccess.choice.indexRange.lowIndex.buf = NULL;
-    }
-
-    if (alternateAccess->list.array[0]->choice.unnamed->choice.selectAccess.choice.indexRange.numberOfElements.buf != NULL) {
-        GLOBAL_FREEMEM(alternateAccess->list.array[0]->choice.unnamed->choice.selectAccess.choice.indexRange.numberOfElements.buf);
-        alternateAccess->list.array[0]->choice.unnamed->choice.selectAccess.choice.indexRange.numberOfElements.buf = NULL;
-    }
-
-    if (alternateAccess->list.array[0]->choice.unnamed->choice.selectAccess.choice.index.buf != NULL) {
-        GLOBAL_FREEMEM(alternateAccess->list.array[0]->choice.unnamed->choice.selectAccess.choice.index.buf);
-        alternateAccess->list.array[0]->choice.unnamed->choice.selectAccess.choice.index.buf = NULL;
-    }
-
-    GLOBAL_FREEMEM(alternateAccess->list.array[0]->choice.unnamed);
-    GLOBAL_FREEMEM(alternateAccess->list.array[0]);
-    GLOBAL_FREEMEM(alternateAccess->list.array);
-    GLOBAL_FREEMEM(alternateAccess);
-
-}
-
 
 static ListOfVariableSeq_t*
 createNewDomainVariableSpecification(const char* domainId, const char* itemId)
@@ -385,7 +323,6 @@ mmsClient_createWriteMultipleItemsRequest(uint32_t invokeId, const char* domainI
     asn_DEF_MmsPdu.free_struct(&asn_DEF_MmsPdu, mmsPdu, 0);
 
     return rval.encoded;
-
 }
 
 int
@@ -554,7 +491,7 @@ mmsClient_createWriteRequestArray(uint32_t invokeId, const char* domainId, const
             (ListOfVariableSeq_t**) GLOBAL_CALLOC(1, sizeof(ListOfVariableSeq_t*));
 
     ListOfVariableSeq_t* variableIdentifier = createNewDomainVariableSpecification(domainId, itemId);
-    variableIdentifier->alternateAccess = createAlternateAccess(startIndex, elementCount);
+    variableIdentifier->alternateAccess = mmsClient_createAlternateAccess(startIndex, elementCount);
     request->variableAccessSpecification.choice.listOfVariable.list.array[0] = variableIdentifier;
 
     /* Create list of typed data values */
@@ -571,7 +508,7 @@ mmsClient_createWriteRequestArray(uint32_t invokeId, const char* domainId, const
             (asn_app_consume_bytes_f*) mmsClient_write_out, (void*) writeBuffer);
 
     /* Free ASN structure */
-    deleteAlternateAccess(variableIdentifier->alternateAccess);
+    mmsClient_deleteAlternateAccess(variableIdentifier->alternateAccess);
 
     request->variableAccessSpecification.choice.listOfVariable.list.count = 0;
 
@@ -579,6 +516,65 @@ mmsClient_createWriteRequestArray(uint32_t invokeId, const char* domainId, const
     GLOBAL_FREEMEM(request->variableAccessSpecification.choice.listOfVariable.list.array);
     request->variableAccessSpecification.choice.listOfVariable.list.array = 0;
 
+
+    request->listOfData.list.count = 0;
+
+    deleteDataElement(request->listOfData.list.array[0]);
+
+    GLOBAL_FREEMEM(request->listOfData.list.array);
+    request->listOfData.list.array = 0;
+
+    asn_DEF_MmsPdu.free_struct(&asn_DEF_MmsPdu, mmsPdu, 0);
+
+    return rval.encoded;
+}
+
+int
+mmsClient_createWriteRequestAlternateAccessSingleIndexComponent(uint32_t invokeId, const char* domainId, const char* itemId,
+        uint32_t arrayIndex, const char* component,
+        MmsValue* value,
+        ByteBuffer* writeBuffer)
+{
+    MmsPdu_t* mmsPdu = mmsClient_createConfirmedRequestPdu(invokeId);
+
+    mmsPdu->choice.confirmedRequestPdu.confirmedServiceRequest.present =
+            ConfirmedServiceRequest_PR_write;
+    WriteRequest_t* request =
+            &(mmsPdu->choice.confirmedRequestPdu.confirmedServiceRequest.choice.write);
+
+    /* Create list of variable specifications */
+    request->variableAccessSpecification.present = VariableAccessSpecification_PR_listOfVariable;
+    request->variableAccessSpecification.choice.listOfVariable.list.count = 1;
+    request->variableAccessSpecification.choice.listOfVariable.list.array =
+            (ListOfVariableSeq_t**) GLOBAL_CALLOC(1, sizeof(ListOfVariableSeq_t*));
+
+    ListOfVariableSeq_t* variableIdentifier = createNewDomainVariableSpecification(domainId, itemId);
+
+    request->variableAccessSpecification.choice.listOfVariable.list.array[0] = variableIdentifier;
+
+    variableIdentifier->alternateAccess = mmsClient_createAlternateAccessIndexComponent(arrayIndex, component);
+
+
+    /* Create list of typed data values */
+    request->listOfData.list.count = 1;
+    request->listOfData.list.size = 1;
+    request->listOfData.list.array = (Data_t**) GLOBAL_CALLOC(1, sizeof(struct Data*));
+    request->listOfData.list.array[0] = mmsMsg_createBasicDataElement(value);
+
+    /* Encode complete ASN1 structure */
+
+    asn_enc_rval_t rval;
+
+    rval = der_encode(&asn_DEF_MmsPdu, mmsPdu,
+            (asn_app_consume_bytes_f*) mmsClient_write_out, (void*) writeBuffer);
+
+    /* Free ASN structure */
+    mmsClient_deleteAlternateAccess(variableIdentifier->alternateAccess);
+    request->variableAccessSpecification.choice.listOfVariable.list.count = 0;
+
+    GLOBAL_FREEMEM(request->variableAccessSpecification.choice.listOfVariable.list.array[0]);
+    GLOBAL_FREEMEM(request->variableAccessSpecification.choice.listOfVariable.list.array);
+    request->variableAccessSpecification.choice.listOfVariable.list.array = 0;
 
     request->listOfData.list.count = 0;
 

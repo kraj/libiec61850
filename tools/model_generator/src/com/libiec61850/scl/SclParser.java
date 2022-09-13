@@ -27,6 +27,7 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Collection;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Stack;
@@ -57,8 +58,8 @@ import com.libiec61850.scl.types.EnumerationType;
 import com.libiec61850.scl.types.LogicalNodeType;
 import com.libiec61850.scl.types.TypeDeclarations;
 
-public class SclParser {
-
+public class SclParser 
+{
     private List<IED> ieds;
     private Communication communication;
     private TypeDeclarations typeDeclarations;
@@ -109,6 +110,11 @@ public class SclParser {
     	}
     	
         return null;
+    }
+    
+    public Collection<IED> getIeds()
+    {
+        return ieds;
     }
     
     public IED getFirstIed() {
@@ -314,4 +320,32 @@ public class SclParser {
         return null;
     }
 
+    public ConnectedAP getConnectedAP(String iedName, String accessPointName) {
+        communication = this.getCommunication();
+
+        if (communication != null) {
+            List<SubNetwork> subNetworks = communication.getSubNetworks();
+
+            for (SubNetwork subNetwork : subNetworks) {
+                List<ConnectedAP> connectedAPs = subNetwork.getConnectedAPs();
+
+                for (ConnectedAP connectedAP : connectedAPs) {
+                    if (connectedAP.getIedName().equals(iedName)) {
+
+                        if (connectedAP.getApName().equals(accessPointName)) {
+
+                            if (withOutput)
+                                System.out.println("Found connectedAP " + accessPointName + " for IED " + iedName);
+
+                            return connectedAP;
+                        }
+
+                    }
+                }
+
+            }
+        }
+
+        return null;
+    }
 }

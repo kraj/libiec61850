@@ -1,8 +1,7 @@
 /*
- * sv_subscriber_example.c
+ * sv_publisher_example.c
  *
- * Example program for Sampled Values (SV) subscriber
- *
+ * Example program for Sampled Values (SV) publisher
  */
 
 #include <signal.h>
@@ -29,48 +28,71 @@ main(int argc, char** argv)
   
     printf("Using interface %s\n", interface);
 
+    signal(SIGINT, sigint_handler);
+
     SVPublisher svPublisher = SVPublisher_create(NULL, interface);
 
-    SVPublisher_ASDU asdu1 = SVPublisher_addASDU(svPublisher, "svpub1", NULL, 1);
+    if (svPublisher) {
 
-    int float1 = SVPublisher_ASDU_addFLOAT(asdu1);
-    int float2 = SVPublisher_ASDU_addFLOAT(asdu1);
-    int ts1 = SVPublisher_ASDU_addTimestamp(asdu1);
+        /* Create first ASDU and add data points */
 
-    SVPublisher_ASDU asdu2 = SVPublisher_addASDU(svPublisher, "svpub2", NULL, 1);
+        SVPublisher_ASDU asdu1 = SVPublisher_addASDU(svPublisher, "svpub1", NULL, 1);
 
-    int float3 = SVPublisher_ASDU_addFLOAT(asdu2);
-    int float4 = SVPublisher_ASDU_addFLOAT(asdu2);
-    int ts2 = SVPublisher_ASDU_addTimestamp(asdu2);
+        int float1 = SVPublisher_ASDU_addFLOAT(asdu1);
+        int float2 = SVPublisher_ASDU_addFLOAT(asdu1);
+        int ts1 = SVPublisher_ASDU_addTimestamp(asdu1);
 
-    SVPublisher_setupComplete(svPublisher);
+        /* Create second ASDU and add data points */
 
-    float fVal1 = 1234.5678f;
-    float fVal2 = 0.12345f;
+        SVPublisher_ASDU asdu2 = SVPublisher_addASDU(svPublisher, "svpub2", NULL, 1);
 
-    while (running) {
-        Timestamp ts;
-        Timestamp_clearFlags(&ts);
-        Timestamp_setTimeInMilliseconds(&ts, Hal_getTimeInMs());
+        int float3 = SVPublisher_ASDU_addFLOAT(asdu2);
+        int float4 = SVPublisher_ASDU_addFLOAT(asdu2);
+        int ts2 = SVPublisher_ASDU_addTimestamp(asdu2);
 
-        SVPublisher_ASDU_setFLOAT(asdu1, float1, fVal1);
-        SVPublisher_ASDU_setFLOAT(asdu1, float2, fVal2);
-        SVPublisher_ASDU_setTimestamp(asdu1, ts1, ts);
+        SVPublisher_setupComplete(svPublisher);
 
-        SVPublisher_ASDU_setFLOAT(asdu2, float3, fVal1 * 2);
-        SVPublisher_ASDU_setFLOAT(asdu2, float4, fVal2 * 2);
-        SVPublisher_ASDU_setTimestamp(asdu2, ts2, ts);
+        float fVal1 = 1234.5678f;
+        float fVal2 = 0.12345f;
 
-        SVPublisher_ASDU_increaseSmpCnt(asdu1);
-        SVPublisher_ASDU_increaseSmpCnt(asdu2);
+        while (running) {
+            Timestamp ts;
+            Timestamp_clearFlags(&ts);
+            Timestamp_setTimeInMilliseconds(&ts, Hal_getTimeInMs());
 
-        fVal1 += 1.1f;
-        fVal2 += 0.1f;
+            /* update the values in the SV ASDUs */
 
-        SVPublisher_publish(svPublisher);
+            SVPublisher_ASDU_setFLOAT(asdu1, float1, fVal1);
+            SVPublisher_ASDU_setFLOAT(asdu1, float2, fVal2);
+            SVPublisher_ASDU_setTimestamp(asdu1, ts1, ts);
 
-        Thread_sleep(50);
+            SVPublisher_ASDU_setFLOAT(asdu2, float3, fVal1 * 2);
+            SVPublisher_ASDU_setFLOAT(asdu2, float4, fVal2 * 2);
+            SVPublisher_ASDU_setTimestamp(asdu2, ts2, ts);
+
+            /* update the sample counters */
+
+            SVPublisher_ASDU_increaseSmpCnt(asdu1);
+            SVPublisher_ASDU_increaseSmpCnt(asdu2);
+
+            fVal1 += 1.1f;
+            fVal2 += 0.1f;
+
+            /* send the SV message */
+            SVPublisher_publish(svPublisher);
+
+            /*
+             * For real applications this sleep time has to be adjusted to match the SV sample rate!
+             * Platform specific functions like usleep or timer interrupt service routines have to be used instead
+             * to realize the required time accuracy for sending messages.
+             */
+            Thread_sleep(50);
+        }
+
+        SVPublisher_destroy(svPublisher);
     }
-
-    SVPublisher_destroy(svPublisher);
+    else {
+        printf("Failed to create SV publisher\n");
+    }
+    return 0;
 }

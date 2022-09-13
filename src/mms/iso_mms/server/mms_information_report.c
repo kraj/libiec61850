@@ -1,7 +1,7 @@
 /*
  *  mms_information_report.c
  *
- *  Copyright 2013, 2015 Michael Zillgith
+ *  Copyright 2013-2019 Michael Zillgith
  *
  *  This file is part of libIEC61850.
  *
@@ -52,12 +52,17 @@ MmsServerConnection_sendInformationReportSingleVariableVMDSpecific(MmsServerConn
 
     if (completeMessageSize > self->maxPduSize) {
         if (DEBUG_MMS_SERVER)
-            printf("MMS_SERVER: report message too large %i (max = %i) -> skip message!\n", completeMessageSize, self->maxPduSize);
+            printf("MMS_SERVER: report message too large %u (max = %u) -> skip message!\n", completeMessageSize, self->maxPduSize);
 
         goto exit_function;
     }
 
 	if (DEBUG_MMS_SERVER) printf("MMS_SERVER: sendInfReportSingle variable: %s\n", itemId);
+
+#if (CONFIG_MMS_THREADLESS_STACK != 1)
+    if (handlerMode == false)
+        IsoConnection_lock(self->isoConnection);
+#endif
 
 	ByteBuffer* reportBuffer = MmsServer_reserveTransmitBuffer(self->server);
 
@@ -80,9 +85,14 @@ MmsServerConnection_sendInformationReportSingleVariableVMDSpecific(MmsServerConn
 
     reportBuffer->size = bufPos;
 
-    IsoConnection_sendMessage(self->isoConnection, reportBuffer, handlerMode);
+    IsoConnection_sendMessage(self->isoConnection, reportBuffer);
 
     MmsServer_releaseTransmitBuffer(self->server);
+
+#if (CONFIG_MMS_THREADLESS_STACK != 1)
+    if (handlerMode == false)
+        IsoConnection_unlock(self->isoConnection);
+#endif
 
 exit_function:
     return;
@@ -147,10 +157,15 @@ MmsServerConnection_sendInformationReportListOfVariables(
 
     if (completeMessageSize > self->maxPduSize) {
         if (DEBUG_MMS_SERVER)
-            printf("MMS_SERVER: report message too large %i (max = %i) -> skip message!\n", completeMessageSize, self->maxPduSize);
+            printf("MMS_SERVER: report message too large %u (max = %u) -> skip message!\n", completeMessageSize, self->maxPduSize);
 
         goto exit_function;
     }
+
+#if (CONFIG_MMS_THREADLESS_STACK != 1)
+    if (handlerMode == false)
+        IsoConnection_lock(self->isoConnection);
+#endif
 
     /* encode message */
     ByteBuffer* reportBuffer = MmsServer_reserveTransmitBuffer(self->server);
@@ -212,14 +227,19 @@ MmsServerConnection_sendInformationReportListOfVariables(
 
     reportBuffer->size = bufPos;
 
-    IsoConnection_sendMessage(self->isoConnection, reportBuffer, handlerMode);
+    IsoConnection_sendMessage(self->isoConnection, reportBuffer);
 
     MmsServer_releaseTransmitBuffer(self->server);
+
+#if (CONFIG_MMS_THREADLESS_STACK != 1)
+    if (handlerMode == false) {
+        IsoConnection_unlock(self->isoConnection);
+    }
+#endif
 
 exit_function:
     return;
 }
-
 
 void /* send information report for a named variable list */
 MmsServerConnection_sendInformationReportVMDSpecific(MmsServerConnection self, char* itemId, LinkedList values,
@@ -261,12 +281,15 @@ MmsServerConnection_sendInformationReportVMDSpecific(MmsServerConnection self, c
 
     if (completeMessageSize > self->maxPduSize) {
         if (DEBUG_MMS_SERVER)
-            printf("MMS_SERVER: report message too large %i (max = %i) -> skip message!\n", completeMessageSize, self->maxPduSize);
+            printf("MMS_SERVER: report message too large %u (max = %u) -> skip message!\n", completeMessageSize, self->maxPduSize);
 
         goto exit_function;
     }
 
-    if (DEBUG_MMS_SERVER) printf("MMS_SERVER: sendInfReport\n");
+#if (CONFIG_MMS_THREADLESS_STACK != 1)
+    if (handlerMode == false)
+        IsoConnection_lock(self->isoConnection);
+#endif
 
     ByteBuffer* reportBuffer =  MmsServer_reserveTransmitBuffer(self->server);
 
@@ -296,9 +319,14 @@ MmsServerConnection_sendInformationReportVMDSpecific(MmsServerConnection self, c
 
     reportBuffer->size = bufPos;
 
-    IsoConnection_sendMessage(self->isoConnection, reportBuffer, false);
+    IsoConnection_sendMessage(self->isoConnection, reportBuffer);
 
     MmsServer_releaseTransmitBuffer(self->server);
+
+#if (CONFIG_MMS_THREADLESS_STACK != 1)
+    if (handlerMode == false)
+        IsoConnection_unlock(self->isoConnection);
+#endif
 
 exit_function:
     return;

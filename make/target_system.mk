@@ -1,10 +1,10 @@
 UNAME := $(shell uname)
 
 MIPSEL_TOOLCHAIN_PREFIX=mipsel-openwrt-linux-
-ARM_TOOLCHAIN_PREFIX=arm-linux-
+#ARM_TOOLCHAIN_PREFIX=arm-linux-
 #ARM_TOOLCHAIN_PREFIX=arm-linux-gnueabi-
 #ARM_TOOLCHAIN_PREFIX=arm-poky-linux-gnueabi-
-#ARM_TOOLCHAIN_PREFIX=arm-linux-gnueabi-
+ARM_TOOLCHAIN_PREFIX=arm-linux-gnueabihf-
 UCLINUX_ARM_TOOLCHAIN_PREFIX=arm-uclinux-elf-
 UCLINUX_XPORT_TOOLCHAIN_PREFIX=m68k-uclinux-
 MINGW_TOOLCHAIN_PREFIX=i586-mingw32msvc-
@@ -20,7 +20,7 @@ TARGET=POSIX
 else ifeq ($(findstring MINGW,$(UNAME)), MINGW)
 TARGET=WIN32
 else ifeq ($(UNAME), Darwin)
-TARGET=BSD
+TARGET=MACOS
 else ifeq ($(UNAME), FreeBSD)
 TARGET=BSD
 endif
@@ -94,7 +94,7 @@ CFLAGS+=-m64
 endif
 
 LDLIBS=-lws2_32
-DYNLIB_LDFLAGS=-Wl,-no-undefined -Wl,--enable-runtime-pseudo-reloc -Wl,--output-def,libiec61850.def,--out-implib,libiec61850.a
+DYNLIB_LDFLAGS=-Wl,-no-undefined -Wl,--enable-runtime-pseudo-reloc -Wl,--out-implib,libiec61850.a
 
 
 # on Windows: only compile with ethernet support if winpcap files are in third_party/winpcap!
@@ -117,9 +117,13 @@ endif
 else 
 ifeq ($(TARGET), BSD)
 HAL_IMPL = BSD
+else ifeq ($(TARGET), MACOS)
+HAL_IMPL = MACOS
 else
 HAL_IMPL = POSIX
 endif
+
+
 
 LDLIBS = -lpthread
 
@@ -167,14 +171,18 @@ CFLAGS += -arch i386
 LDFLAGS += -arch i386
 endif
 
-ifeq ($(TARGET), WIN32)
+ifdef WINDOWS
 DYN_LIB_NAME = $(LIB_OBJS_DIR)/iec61850.dll
 else 
 
 ifeq ($(TARGET), BSD)
 DYN_LIB_NAME = $(LIB_OBJS_DIR)/libiec61850.dylib
 else
+ifeq ($(TARGET), MACOS)
+DYN_LIB_NAME = $(LIB_OBJS_DIR)/libiec61850.dylib
+else
 DYN_LIB_NAME = $(LIB_OBJS_DIR)/libiec61850.so
+endif
 endif
 
 endif

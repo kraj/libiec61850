@@ -56,6 +56,9 @@ directChildStrLen(const char* childId)
     while (i < childIdLen) {
         if (*(childId + i) == '$')
             break;
+        if (*(childId + i) == '.')
+            break;
+
         i++;
     }
 
@@ -65,9 +68,13 @@ directChildStrLen(const char* childId)
 MmsValue*
 MmsVariableSpecification_getChildValue(MmsVariableSpecification* typeSpec, MmsValue* value, const char* childId)
 {
-    if (typeSpec->type == MMS_STRUCTURE) {
+    if ((typeSpec->type == MMS_STRUCTURE) && (value->type == MMS_STRUCTURE)) {
         size_t childLen = directChildStrLen(childId);
         int i;
+
+        if (typeSpec->typeSpec.structure.elementCount != value->value.structure.size)
+            return NULL;
+
         for (i = 0; i < typeSpec->typeSpec.structure.elementCount; i++) {
 
             if (strlen(typeSpec->typeSpec.structure.elements[i]->name) == childLen) {
@@ -96,7 +103,7 @@ MmsVariableSpecification_getType(MmsVariableSpecification* self)
 }
 
 bool
-MmsVariableSpecification_isValueOfType(MmsVariableSpecification* self, MmsValue* value)
+MmsVariableSpecification_isValueOfType(MmsVariableSpecification* self, const MmsValue* value)
 {
     if ((self->type) == (value->type)) {
 
@@ -131,10 +138,8 @@ MmsVariableSpecification_isValueOfType(MmsVariableSpecification* self, MmsValue*
             if (self->typeSpec.bitString == value->value.bitString.size)
                 return true;
 
-            if (self->typeSpec.bitString < 0) {
-                if (value->value.bitString.size <= (-self->typeSpec.bitString))
-                    return true;
-            }
+            if (self->typeSpec.bitString < 0)
+                return true;
         }
         else if (self->type == MMS_FLOAT) {
             if ((self->typeSpec.floatingpoint.exponentWidth == value->value.floatingPoint.exponentWidth) &&

@@ -1,7 +1,7 @@
 /*
  *  sv_publisher.h
  *
- *  Copyright 2016 Michael Zillgith
+ *  Copyright 2016-2018 Michael Zillgith
  *
  *  This file is part of libIEC61850.
  *
@@ -25,7 +25,6 @@
 #ifndef LIBIEC61850_SRC_SAMPLED_VALUES_SV_PUBLISHER_H_
 #define LIBIEC61850_SRC_SAMPLED_VALUES_SV_PUBLISHER_H_
 
-#include "libiec61850_platform_includes.h"
 #include "iec61850_common.h"
 
 #ifdef __cplusplus
@@ -70,12 +69,26 @@ typedef struct sSVPublisher_ASDU* SVPublisher_ASDU;
 /**
  * \brief Create a new IEC61850-9-2 Sampled Values publisher.
  *
+ * NOTE: VLAN tagging is enabled when calling this constructor. To disable VLAN tagging
+ * use \ref SVPublisher_createEx instead.
+ *
  * \param[in] interfaceId the name of the interface over which the SV publisher should send SV packets.
  * \param[in] parameters optional parameters for setting VLAN options and destination MAC address. Use NULL for default values.
  * \return the new SV publisher instance.
  */
-SVPublisher
+LIB61850_API SVPublisher
 SVPublisher_create(CommParameters* parameters, const char* interfaceId);
+
+/**
+ * \brief Create a new IEC61850-9-2 Sampled Values publisher.
+ *
+ * \param[in] interfaceId the name of the interface over which the SV publisher should send SV packets.
+ * \param[in] parameters optional parameters for setting VLAN options and destination MAC address. Use NULL for default values.
+ * \param[in] useVlanTags enable(true)/disable(false) VLAN tagging
+ * \return the new SV publisher instance.
+ */
+LIB61850_API SVPublisher
+SVPublisher_createEx(CommParameters* parameters, const char* interfaceId, bool useVlanTag);
 
 /**
  * \brief Create an Application Service Data Unit (ASDU) and add it to an existing Sampled Values publisher.
@@ -85,7 +98,7 @@ SVPublisher_create(CommParameters* parameters, const char* interfaceId);
  * \param[in] confRev Configuration revision number. Should be incremented each time that the configuration of the logical device changes.
  * \return the new ASDU instance.
  */
-SVPublisher_ASDU
+LIB61850_API SVPublisher_ASDU
 SVPublisher_addASDU(SVPublisher self, const char* svID, const char* datset, uint32_t confRev);
 
 /**
@@ -95,7 +108,7 @@ SVPublisher_addASDU(SVPublisher self, const char* svID, const char* datset, uint
  *
  * \param[in] self the Sampled Values publisher instance.
  */
-void
+LIB61850_API void
 SVPublisher_setupComplete(SVPublisher self);
 
 /**
@@ -103,7 +116,7 @@ SVPublisher_setupComplete(SVPublisher self);
  *
  * \param[in] self the Sampled Values publisher instance.
  */
-void
+LIB61850_API void
 SVPublisher_publish(SVPublisher self);
 
 /**
@@ -111,7 +124,7 @@ SVPublisher_publish(SVPublisher self);
  *
  * \param[in] self the Sampled Values publisher instance.
  */
-void
+LIB61850_API void
 SVPublisher_destroy(SVPublisher self);
 
 /**
@@ -127,7 +140,7 @@ SVPublisher_destroy(SVPublisher self);
  *
  * \param[in] self the Sampled Values ASDU instance.
  */
-void
+LIB61850_API void
 SVPublisher_ASDU_resetBuffer(SVPublisher_ASDU self);
 
 /**
@@ -136,7 +149,7 @@ SVPublisher_ASDU_resetBuffer(SVPublisher_ASDU self);
  * \param[in] self the Sampled Values ASDU instance.
  * \return the offset in bytes within the ASDU data block.
  */
-int
+LIB61850_API int
 SVPublisher_ASDU_addINT8(SVPublisher_ASDU self);
 
 /**
@@ -146,7 +159,7 @@ SVPublisher_ASDU_addINT8(SVPublisher_ASDU self);
  * \param[in] index The offset within the data block of the ASDU in bytes.
  * \param[in] value The value which should be set.
  */
-void
+LIB61850_API void
 SVPublisher_ASDU_setINT8(SVPublisher_ASDU self, int index, int8_t value);
 
 /**
@@ -155,7 +168,7 @@ SVPublisher_ASDU_setINT8(SVPublisher_ASDU self, int index, int8_t value);
  * \param[in] self the Sampled Values ASDU instance.
  * \return the offset in bytes within the ASDU data block.
  */
-int
+LIB61850_API int
 SVPublisher_ASDU_addINT32(SVPublisher_ASDU self);
 
 /**
@@ -165,7 +178,7 @@ SVPublisher_ASDU_addINT32(SVPublisher_ASDU self);
  * \param[in] index The offset within the data block of the ASDU in bytes.
  * \param[in] value The value which should be set.
  */
-void
+LIB61850_API void
 SVPublisher_ASDU_setINT32(SVPublisher_ASDU self, int index, int32_t value);
 
 /**
@@ -174,7 +187,7 @@ SVPublisher_ASDU_setINT32(SVPublisher_ASDU self, int index, int32_t value);
  * \param[in] self the Sampled Values ASDU instance.
  * \return the offset in bytes of the new element within the ASDU data block.
  */
-int
+LIB61850_API int
 SVPublisher_ASDU_addINT64(SVPublisher_ASDU self);
 
 /**
@@ -184,7 +197,7 @@ SVPublisher_ASDU_addINT64(SVPublisher_ASDU self);
  * \param[in] index The offset within the data block of the ASDU in bytes.
  * \param[in] value The value which should be set.
  */
-void
+LIB61850_API void
 SVPublisher_ASDU_setINT64(SVPublisher_ASDU self, int index, int64_t value);
 
 /**
@@ -193,7 +206,7 @@ SVPublisher_ASDU_setINT64(SVPublisher_ASDU self, int index, int64_t value);
  * \param[in] self the Sampled Values ASDU instance.
  * \return the offset in bytes of the new element within the ASDU data block.
  */
-int
+LIB61850_API int
 SVPublisher_ASDU_addFLOAT(SVPublisher_ASDU self);
 
 /**
@@ -203,7 +216,7 @@ SVPublisher_ASDU_addFLOAT(SVPublisher_ASDU self);
  * \param[in] index The offset within the data block of the ASDU in bytes.
  * \param[in] value The value which should be set.
  */
-void
+LIB61850_API void
 SVPublisher_ASDU_setFLOAT(SVPublisher_ASDU self, int index, float value);
 
 /**
@@ -212,7 +225,7 @@ SVPublisher_ASDU_setFLOAT(SVPublisher_ASDU self, int index, float value);
  * \param[in] self the Sampled Values ASDU instance.
  * \return the offset in bytes of the new element within the ASDU data block.
  */
-int
+LIB61850_API int
 SVPublisher_ASDU_addFLOAT64(SVPublisher_ASDU self);
 
 /**
@@ -222,7 +235,7 @@ SVPublisher_ASDU_addFLOAT64(SVPublisher_ASDU self);
  * \param[in] index The offset within the data block of the ASDU in bytes.
  * \param[in] value The value which should be set.
  */
-void
+LIB61850_API void
 SVPublisher_ASDU_setFLOAT64(SVPublisher_ASDU self, int index, double value);
 
 /**
@@ -231,7 +244,7 @@ SVPublisher_ASDU_setFLOAT64(SVPublisher_ASDU self, int index, double value);
  * \param[in] self the Sampled Values ASDU instance.
  * \return the offset in bytes of the new element within the ASDU data block.
  */
-int
+LIB61850_API int
 SVPublisher_ASDU_addTimestamp(SVPublisher_ASDU self);
 
 /**
@@ -241,7 +254,7 @@ SVPublisher_ASDU_addTimestamp(SVPublisher_ASDU self);
  * \param[in] index The offset within the data block of the ASDU in bytes.
  * \param[in] value The value which should be set.
  */
-void
+LIB61850_API void
 SVPublisher_ASDU_setTimestamp(SVPublisher_ASDU self, int index, Timestamp value);
 
 /**
@@ -252,7 +265,7 @@ SVPublisher_ASDU_setTimestamp(SVPublisher_ASDU self, int index, Timestamp value)
  * \param[in] self the Sampled Values ASDU instance.
  * \return the offset in bytes of the new element within the ASDU data block.
  */
-int
+LIB61850_API int
 SVPublisher_ASDU_addQuality(SVPublisher_ASDU self);
 
 /**
@@ -262,7 +275,7 @@ SVPublisher_ASDU_addQuality(SVPublisher_ASDU self);
  * \param[in] index The offset within the data block of the ASDU in bytes.
  * \param[in] value The value which should be set.
  */
-void
+LIB61850_API void
 SVPublisher_ASDU_setQuality(SVPublisher_ASDU self, int index, Quality value);
 
 /**
@@ -271,7 +284,7 @@ SVPublisher_ASDU_setQuality(SVPublisher_ASDU self, int index, Quality value);
  * \param[in] self the Sampled Values ASDU instance.
  * \param[in] value the new value of the attribute.
  */
-void
+LIB61850_API void
 SVPublisher_ASDU_setSmpCnt(SVPublisher_ASDU self, uint16_t value);
 
 /**
@@ -279,7 +292,7 @@ SVPublisher_ASDU_setSmpCnt(SVPublisher_ASDU self, uint16_t value);
  *
  * \param[in] self the Sampled Values ASDU instance.
  */
-uint16_t
+LIB61850_API uint16_t
 SVPublisher_ASDU_getSmpCnt(SVPublisher_ASDU self);
 
 /**
@@ -291,16 +304,58 @@ SVPublisher_ASDU_getSmpCnt(SVPublisher_ASDU self);
  *
  * \param[in] self the Sampled Values ASDU instance.
  */
-void
+LIB61850_API void
 SVPublisher_ASDU_increaseSmpCnt(SVPublisher_ASDU self);
 
 /**
- * \brief Set the refresh time attribute of the ASDU.
+ * \brief Set the roll-over (wrap) limit for the sample counter. When reaching the limit the
+ *        sample counter will be reset to 0 (default is no limit)
+ *
+ * \param[in] self the Sampled Values ASDU instance.
+ * \param[in] value the new sample counter limit
+ */
+LIB61850_API void
+SVPublisher_ASDU_setSmpCntWrap(SVPublisher_ASDU self, uint16_t value);
+
+/**
+ * \brief Enables the transmission of refresh time attribute of the ASDU
+ *
+ * The refresh time is the time when the data in put into the sampled values buffer
  *
  * \param[in] self the Sampled Values ASDU instance.
  */
-void
-SVPublisher_ASDU_setRefrTm(SVPublisher_ASDU self, uint64_t refrTm);
+LIB61850_API void
+SVPublisher_ASDU_enableRefrTm(SVPublisher_ASDU self);
+
+/**
+ * \brief Set the refresh time attribute of the ASDU with nanosecond resolution
+ *
+ * \param[in] self the Sampled Values ASDU instance.
+ * \param[in] refrTmNs the refresh time value with nanoseconds resolution.
+ */
+LIB61850_API void
+SVPublisher_ASDU_setRefrTmNs(SVPublisher_ASDU self, nsSinceEpoch refrTmNs);
+
+/**
+ * \brief Set the refresh time attribute of the ASDU with millisecond resolution
+ *
+ * \param[in] self the Sampled Values ASDU instance.
+ * \param[in] refrTmNs the refresh time value with with milliseconds resolution.
+ */
+LIB61850_API void
+SVPublisher_ASDU_setRefrTm(SVPublisher_ASDU self, msSinceEpoch refrTm);
+
+/**
+ * \brief Set the refresh time attribute of the ASDU
+ *
+ * NOTE: Using this function you can control the time quality flags and the
+ * sub second precision (number of valid bits) of the RefrTm value.
+ *
+ * \param[in] self the Sampled Values ASDU instance.
+ * \param[in] refrTm the refresh time value
+ */
+LIB61850_API void
+SVPublisher_ASDU_setRefrTmByTimestamp(SVPublisher_ASDU self, Timestamp* refrTm);
 
 /**
  * \brief Set the sample mode attribute of the ASDU.
@@ -308,10 +363,12 @@ SVPublisher_ASDU_setRefrTm(SVPublisher_ASDU self, uint64_t refrTm);
  * The attribute SmpMod shall specify if the sample rate is defined in units of samples per nominal period, samples per second or seconds per sample.
  * If it is missing, the default value is samples per period.
  *
+ * NOTE: Function has to be called before calling \ref SVPublisher_setupComplete
+ *
  * \param[in] self the Sampled Values ASDU instance.
- * \param smpMod one of IEC61850_SV_SMPMOD_PER_NOMINAL_PERIOD, IEC61850_SV_SMPMOD_SAMPLES_PER_SECOND or IEC61850_SV_SMPMOD_SECONDS_PER_SAMPLE
+ * \param[in] smpMod one of IEC61850_SV_SMPMOD_PER_NOMINAL_PERIOD, IEC61850_SV_SMPMOD_SAMPLES_PER_SECOND or IEC61850_SV_SMPMOD_SECONDS_PER_SAMPLE
  */
-void
+LIB61850_API void
 SVPublisher_ASDU_setSmpMod(SVPublisher_ASDU self, uint8_t smpMod);
 
 /**
@@ -320,11 +377,30 @@ SVPublisher_ASDU_setSmpMod(SVPublisher_ASDU self, uint8_t smpMod);
  * The attribute SmpRate shall specify the sample rate.
  * The value shall be interpreted depending on the value of the SmpMod attribute.
  *
+ * NOTE: Function has to be called before calling \ref SVPublisher_setupComplete
+ *
  * \param[in] self the Sampled Values ASDU instance.
- * \param smpRate Amount of samples (default per nominal period, see SmpMod).
+ * \param[in] smpRate Amount of samples (default per nominal period, see SmpMod).
  */
-void
+LIB61850_API void
 SVPublisher_ASDU_setSmpRate(SVPublisher_ASDU self, uint16_t smpRate);
+
+/**
+ * \brief Set the clock synchronization information
+ *
+ * Default value is not synchronized (0).
+ * Possible values are:
+ * 0 = SV are not synchronized by an external clock signal.
+ * 1 = SV are synchronized by a clock signal from an unspecified local area clock.
+ * 2 = SV are synchronized by a global area clock signal (time traceable).
+ * 5 to 254 = SV are synchronized by a clock signal from a local area clock identified by this value.
+ * 3;4;255 = Reserved values – Do not use.
+ *
+ * \param[in] self the Sampled Values ASDU instance.
+ * \param[in] smpSynch the clock synchronization state
+ */
+LIB61850_API void
+SVPublisher_ASDU_setSmpSynch(SVPublisher_ASDU self, uint16_t smpSynch);
 
 /**@} @}*/
 
@@ -347,70 +423,70 @@ typedef struct sSVPublisher* SampledValuesPublisher;
 
 typedef struct sSV_ASDU* SV_ASDU;
 
-DEPRECATED SVPublisher
+LIB61850_API DEPRECATED SVPublisher
 SampledValuesPublisher_create(CommParameters* parameters, const char* interfaceId);
 
-DEPRECATED SVPublisher_ASDU
+LIB61850_API DEPRECATED SVPublisher_ASDU
 SampledValuesPublisher_addASDU(SVPublisher self, char* svID, char* datset, uint32_t confRev);
 
-DEPRECATED void
+LIB61850_API DEPRECATED void
 SampledValuesPublisher_setupComplete(SVPublisher self);
 
-DEPRECATED void
+LIB61850_API DEPRECATED void
 SampledValuesPublisher_publish(SVPublisher self);
 
-DEPRECATED void
+LIB61850_API DEPRECATED void
 SampledValuesPublisher_destroy(SVPublisher self);
 
-DEPRECATED void
+LIB61850_API DEPRECATED void
 SV_ASDU_resetBuffer(SVPublisher_ASDU self);
 
-DEPRECATED int
+LIB61850_API DEPRECATED int
 SV_ASDU_addINT8(SVPublisher_ASDU self);
 
-DEPRECATED void
+LIB61850_API DEPRECATED void
 SV_ASDU_setINT8(SVPublisher_ASDU self, int index, int8_t value);
 
-DEPRECATED int
+LIB61850_API DEPRECATED int
 SV_ASDU_addINT32(SVPublisher_ASDU self);
 
-DEPRECATED void
+LIB61850_API DEPRECATED void
 SV_ASDU_setINT32(SVPublisher_ASDU self, int index, int32_t value);
 
-DEPRECATED int
+LIB61850_API DEPRECATED int
 SV_ASDU_addINT64(SVPublisher_ASDU self);
 
-DEPRECATED void
+LIB61850_API DEPRECATED void
 SV_ASDU_setINT64(SVPublisher_ASDU self, int index, int64_t value);
 
-DEPRECATED int
+LIB61850_API DEPRECATED int
 SV_ASDU_addFLOAT(SVPublisher_ASDU self);
 
-DEPRECATED void
+LIB61850_API DEPRECATED void
 SV_ASDU_setFLOAT(SVPublisher_ASDU self, int index, float value);
 
-DEPRECATED int
+LIB61850_API DEPRECATED int
 SV_ASDU_addFLOAT64(SVPublisher_ASDU self);
 
-DEPRECATED void
+LIB61850_API DEPRECATED void
 SV_ASDU_setFLOAT64(SVPublisher_ASDU self, int index, double value);
 
-void DEPRECATED
+LIB61850_API DEPRECATED void
 SV_ASDU_setSmpCnt(SVPublisher_ASDU self, uint16_t value);
 
-DEPRECATED uint16_t
+LIB61850_API DEPRECATED uint16_t
 SV_ASDU_getSmpCnt(SVPublisher_ASDU self);
 
-DEPRECATED void
+LIB61850_API DEPRECATED void
 SV_ASDU_increaseSmpCnt(SVPublisher_ASDU self);
 
-DEPRECATED void
+LIB61850_API DEPRECATED void
 SV_ASDU_setRefrTm(SVPublisher_ASDU self, uint64_t refrTm);
 
-DEPRECATED void
+LIB61850_API DEPRECATED void
 SV_ASDU_setSmpMod(SVPublisher_ASDU self, uint8_t smpMod);
 
-DEPRECATED void
+LIB61850_API DEPRECATED void
 SV_ASDU_setSmpRate(SVPublisher_ASDU self, uint16_t smpRate);
 
 /**@}*/

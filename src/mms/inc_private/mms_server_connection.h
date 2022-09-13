@@ -1,24 +1,24 @@
 /*
  *  mms_server_connection.h
  *
- *  Copyright 2013 Michael Zillgith
+ *  Copyright 2013-2018 Michael Zillgith
  *
- *	This file is part of libIEC61850.
+ *  This file is part of libIEC61850.
  *
- *	libIEC61850 is free software: you can redistribute it and/or modify
- *	it under the terms of the GNU General Public License as published by
- *	the Free Software Foundation, either version 3 of the License, or
- *	(at your option) any later version.
+ *  libIEC61850 is free software: you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation, either version 3 of the License, or
+ *  (at your option) any later version.
  *
- *	libIEC61850 is distributed in the hope that it will be useful,
- *	but WITHOUT ANY WARRANTY; without even the implied warranty of
- *	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *	GNU General Public License for more details.
+ *  libIEC61850 is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  GNU General Public License for more details.
  *
- *	You should have received a copy of the GNU General Public License
- *	along with libIEC61850.  If not, see <http://www.gnu.org/licenses/>.
+ *  You should have received a copy of the GNU General Public License
+ *  along with libIEC61850.  If not, see <http://www.gnu.org/licenses/>.
  *
- *	See COPYING file for the complete license text.
+ *  See COPYING file for the complete license text.
  */
 
 /**
@@ -42,29 +42,35 @@
 extern "C" {
 #endif
 
-MmsServerConnection
+LIB61850_INTERNAL MmsServerConnection
 MmsServerConnection_init(MmsServerConnection connection, MmsServer server, IsoConnection isoCon);
 
-void
+LIB61850_INTERNAL void
 MmsServerConnection_destroy(MmsServerConnection connection);
 
-bool
+LIB61850_INTERNAL int
+MmsServerConnection_getMaxMmsPduSize(MmsServerConnection self);
+
+LIB61850_INTERNAL bool
+MmsServerConnection_sendMessage(MmsServerConnection self, ByteBuffer* message);
+
+LIB61850_INTERNAL bool
 MmsServerConnection_addNamedVariableList(MmsServerConnection self, MmsNamedVariableList variableList);
 
-MmsNamedVariableList
+LIB61850_INTERNAL MmsNamedVariableList
 MmsServerConnection_getNamedVariableList(MmsServerConnection self, const char* variableListName);
 
-LinkedList
+LIB61850_INTERNAL LinkedList
 MmsServerConnection_getNamedVariableLists(MmsServerConnection self);
 
-void
+LIB61850_INTERNAL void
 MmsServerConnection_deleteNamedVariableList(MmsServerConnection self, char* listName);
 
 /** \brief send information report for a single VMD specific variable
  *
  *   \param handlerMode send this message in the context of a stack callback handler
  */
-void
+LIB61850_INTERNAL void
 MmsServerConnection_sendInformationReportSingleVariableVMDSpecific(MmsServerConnection self,
     char* itemId, MmsValue* value, bool handlerMode);
 
@@ -73,7 +79,7 @@ MmsServerConnection_sendInformationReportSingleVariableVMDSpecific(MmsServerConn
  *
  *   \param handlerMode send this message in the context of a stack callback handler
  */
-void /* send information report for a VMD specific named variable list */
+LIB61850_INTERNAL void /* send information report for a VMD specific named variable list */
 MmsServerConnection_sendInformationReportVMDSpecific(MmsServerConnection self, char* itemId, LinkedList values
         , bool handlerMode);
 
@@ -81,7 +87,7 @@ MmsServerConnection_sendInformationReportVMDSpecific(MmsServerConnection self, c
  *
  *   \param handlerMode send this message in the context of a stack callback handler
  */
-void
+LIB61850_INTERNAL void
 MmsServerConnection_sendInformationReportListOfVariables(
         MmsServerConnection self,
         LinkedList /* MmsVariableAccessSpecification */ variableAccessDeclarations,
@@ -89,18 +95,21 @@ MmsServerConnection_sendInformationReportListOfVariables(
         bool handlerMode
         );
 
-void
+LIB61850_INTERNAL void
 MmsServerConnection_sendWriteResponse(MmsServerConnection self, uint32_t invokeId, MmsDataAccessError indication,
         bool handlerMode);
 
+LIB61850_INTERNAL void
+MmsServerConnection_sendReadResponse(MmsServerConnection self, uint32_t invokeId, LinkedList values,
+        bool handlerMode);
 
-uint32_t
+LIB61850_INTERNAL uint32_t
 MmsServerConnection_getLastInvokeId(MmsServerConnection self);
 
-uint32_t
+LIB61850_INTERNAL uint32_t
 MmsServerConnection_getNextRequestInvokeId(MmsServerConnection self);
 
-const char*
+LIB61850_INTERNAL const char*
 MmsServerConnection_getFilesystemBasepath(MmsServerConnection self);
 
 #ifdef __cplusplus

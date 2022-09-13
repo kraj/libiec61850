@@ -1,7 +1,7 @@
 /*
  *  logging.c
  *
- *  Copyright 2016 Michael Zillgith
+ *  Copyright 2016-2022 Michael Zillgith
  *
  *  This file is part of libIEC61850.
  *
@@ -26,16 +26,20 @@
 #include "mms_mapping.h"
 #include "logging.h"
 #include "linked_list.h"
-#include "array_list.h"
 #include "hal_thread.h"
 
 #include "simple_allocator.h"
 #include "mem_alloc_linked_list.h"
 
+#include "ied_server_private.h"
 #include "mms_mapping_internal.h"
 #include "mms_value_internal.h"
 
 #include "logging_api.h"
+
+#if defined(_MSC_VER) && _MSC_VER < 1900
+#define snprintf(buf,len, format,...) _snprintf_s(buf, len,len, format, __VA_ARGS__)
+#endif
 
 #if (CONFIG_IEC61850_LOG_SERVICE == 1)
 
@@ -44,15 +48,20 @@ LogInstance_create(LogicalNode* parentLN, const char* name)
 {
     LogInstance* self = (LogInstance*) GLOBAL_MALLOC(sizeof(LogInstance));
 
-    self->name = StringUtils_copyString(name);
-    self->parentLN = parentLN;
-    self->logStorage = NULL;
-    self->locked = false;
+    if (self) {
+        self->name = StringUtils_copyString(name);
+        self->parentLN = parentLN;
+        self->logStorage = NULL;
 
-    self->oldEntryId = 0;
-    self->oldEntryTime = 0;
-    self->newEntryId = 0;
-    self->newEntryTime = 0;
+#if (CONFIG_MMS_THREADLESS_STACK != 1)
+        self->lock = Semaphore_create(1);
+#endif
+
+        self->oldEntryId = 0;
+        self->oldEntryTime = 0;
+        self->newEntryId = 0;
+        self->newEntryTime = 0;
+    }
 
     return self;
 }
@@ -60,8 +69,14 @@ LogInstance_create(LogicalNode* parentLN, const char* name)
 void
 LogInstance_destroy(LogInstance* self)
 {
-    GLOBAL_FREEMEM(self->name);
-    GLOBAL_FREEMEM(self);
+    if (self) {
+#if (CONFIG_MMS_THREADLESS_STACK != 1)
+        Semaphore_destroy(self->lock);
+#endif
+
+        GLOBAL_FREEMEM(self->name);
+        GLOBAL_FREEMEM(self);
+    }
 }
 
 void
@@ -71,10 +86,9 @@ LogInstance_logSingleData(LogInstance* self, const char* dataRef, MmsValue* valu
 
     if (logStorage != NULL) {
 
-        while (self->locked)
-            Thread_sleep(1);
-
-        self->locked = true;
+#if (CONFIG_MMS_THREADLESS_STACK != 1)
+        Semaphore_wait(self->lock);
+#endif
 
         if (DEBUG_IED_SERVER)
             printf("IED_SERVER: Log value - dataRef: %s flag: %i\n", dataRef, flag);
@@ -87,16 +101,20 @@ LogInstance_logSingleData(LogInstance* self, const char* dataRef, MmsValue* valu
 
         uint8_t* data = (uint8_t*) GLOBAL_MALLOC(dataSize);
 
-        MmsValue_encodeMmsData(value, data, 0, true);
+        if (data) {
+            MmsValue_encodeMmsData(value, data, 0, true);
 
-        LogStorage_addEntryData(logStorage, entryID, dataRef, data, dataSize, flag);
+            LogStorage_addEntryData(logStorage, entryID, dataRef, data, dataSize, flag);
 
-        self->locked = false;
-
-        GLOBAL_FREEMEM(data);
+            GLOBAL_FREEMEM(data);
+        }
 
         self->newEntryId = entryID;
         self->newEntryTime = timestamp;
+
+#if (CONFIG_MMS_THREADLESS_STACK != 1)
+        Semaphore_post(self->lock);
+#endif
 
     }
     else
@@ -111,10 +129,9 @@ LogInstance_logEntryStart(LogInstance* self)
 
     if (logStorage != NULL) {
 
-        while (self->locked)
-            Thread_sleep(1);
-
-        self->locked = true;
+#if (CONFIG_MMS_THREADLESS_STACK != 1)
+        Semaphore_wait(self->lock);
+#endif
 
         uint64_t timestamp = Hal_getTimeInMs();
 
@@ -135,26 +152,39 @@ LogInstance_logEntryData(LogInstance* self, uint64_t entryID, const char* dataRe
 {
     LogStorage logStorage = self->logStorage;
 
-    if (logStorage != NULL) {
+    if (logStorage) {
 
         int dataSize = MmsValue_encodeMmsData(value, NULL, 0, false);
 
         uint8_t* data = (uint8_t*) GLOBAL_MALLOC(dataSize);
 
-        MmsValue_encodeMmsData(value, data, 0, true);
+        if (data) {
+            MmsValue_encodeMmsData(value, data, 0, true);
 
-        LogStorage_addEntryData(logStorage, entryID, dataRef, data, dataSize, flag);
+            LogStorage_addEntryData(logStorage, entryID, dataRef, data, dataSize, flag);
 
-        self->locked = false;
-
-        GLOBAL_FREEMEM(data);
+            GLOBAL_FREEMEM(data);
+        }
     }
 }
 
 void
 LogInstance_logEntryFinished(LogInstance* self, uint64_t entryID)
 {
-    self->locked = false;
+    (void)entryID;
+
+#if (CONFIG_MMS_THREADLESS_STACK != 1)
+    Semaphore_post(self->lock);
+#endif
+}
+
+void
+LogInstance_updateStatus(LogInstance* self)
+{
+    if (self->logStorage) {
+        LogStorage_getOldestAndNewestEntries(self->logStorage, &(self->newEntryId), &(self->newEntryTime),
+                &(self->oldEntryId), &(self->oldEntryTime));
+    }
 }
 
 void
@@ -162,8 +192,7 @@ LogInstance_setLogStorage(LogInstance* self, LogStorage logStorage)
 {
     self->logStorage = logStorage;
 
-    LogStorage_getOldestAndNewestEntries(logStorage, &(self->newEntryId), &(self->newEntryTime),
-            &(self->oldEntryId), &(self->oldEntryTime));
+    LogInstance_updateStatus(self);
 }
 
 LogControl*
@@ -171,16 +200,19 @@ LogControl_create(LogicalNode* parentLN, MmsMapping* mmsMapping)
 {
     LogControl* self = (LogControl*) GLOBAL_MALLOC(sizeof(LogControl));
 
-    self->enabled = false;
-    self->dataSet = NULL;
-    self->isDynamicDataSet = false;
-    self->triggerOps = 0;
-    self->logicalNode = parentLN;
-    self->mmsMapping = mmsMapping;
-    self->dataSetRef = NULL;
-    self->logInstance = NULL;
-    self->intgPd = 0;
-    self->nextIntegrityScan = 0;
+    if (self) {
+        self->enabled = false;
+        self->dataSet = NULL;
+        self->isDynamicDataSet = false;
+        self->triggerOps = 0;
+        self->logicalNode = parentLN;
+        self->mmsMapping = mmsMapping;
+        self->dataSetRef = NULL;
+        self->logInstance = NULL;
+        self->intgPd = 0;
+        self->nextIntegrityScan = 0;
+        self->logRef = NULL;
+    }
 
     return self;
 }
@@ -195,6 +227,9 @@ LogControl_destroy(LogControl* self)
 
         if (self->dataSetRef != NULL)
             GLOBAL_FREEMEM(self->dataSetRef);
+
+        if (self->logRef)
+            GLOBAL_FREEMEM(self->logRef);
 
         GLOBAL_FREEMEM(self);
     }
@@ -296,7 +331,7 @@ getLogInstanceByLogRef(MmsMapping* self, const char* logRef)
     char* lnName;
     char* logName;
 
-    strncpy(refStr, logRef, 129);
+    StringUtils_copyStringMax(refStr, 130, logRef);
 
     domainName = refStr;
 
@@ -347,6 +382,9 @@ updateLogStatusInLCB(LogControl* self)
     LogInstance* logInstance = self->logInstance;
 
     if (logInstance != NULL) {
+
+        LogInstance_updateStatus(logInstance);
+
         MmsValue_setBinaryTime(self->oldEntrTm, logInstance->oldEntryTime);
         MmsValue_setBinaryTime(self->newEntrTm, logInstance->newEntryTime);
 
@@ -368,15 +406,93 @@ freeDynamicDataSet(LogControl* self)
     }
 }
 
+#if (CONFIG_IEC61850_SERVICE_TRACKING == 1)
+
+static void
+updateGenericTrackingObjectValues(MmsMapping* self, LogControl* logControl, IEC61850_ServiceType serviceType, MmsDataAccessError errVal)
+{
+    ServiceTrkInstance trkInst = (ServiceTrkInstance) self->locbTrk;
+
+    if (trkInst) {
+        if (trkInst->serviceType)
+            MmsValue_setInt32(trkInst->serviceType->mmsValue, (int) serviceType);
+
+        if (trkInst->t)
+            MmsValue_setUtcTimeMs(trkInst->t->mmsValue, Hal_getTimeInMs());
+
+        if (trkInst->errorCode)
+            MmsValue_setInt32(trkInst->errorCode->mmsValue,
+                    private_IedServer_convertMmsDataAccessErrorToServiceError(errVal));
+
+        char objRef[130];
+
+        /* create object reference */
+        LogicalNode* ln =  logControl->logControlBlock->parent;
+        LogicalDevice* ld = (LogicalDevice*) ln->parent;
+
+        char* iedName = self->iedServer->model->name;
+
+        snprintf(objRef, 129, "%s%s/%s.%s", iedName, ld->name, ln->name, logControl->logControlBlock->name);
+
+        if (trkInst->objRef) {
+            IedServer_updateVisibleStringAttributeValue(self->iedServer, trkInst->objRef, objRef);
+        }
+    }
+}
+
+static void
+copyLCBValuesToTrackingObject(MmsMapping* self, LogControl* logControl)
+{
+    if (self->locbTrk) {
+        LocbTrkInstance trkInst = self->locbTrk;
+
+        if (trkInst->logEna)
+            MmsValue_setBoolean(trkInst->logEna->mmsValue, logControl->enabled);
+
+        if (trkInst->logRef)
+            MmsValue_setVisibleString(trkInst->logRef->mmsValue, logControl->logRef);
+
+        if (trkInst->datSet) {
+            char datSet[130];
+
+            if (logControl->dataSetRef) {
+                StringUtils_copyStringMax(datSet, 130, logControl->dataSetRef);
+
+                StringUtils_replace(datSet, '$', '.');
+            }
+            else {
+                datSet[0] = 0;
+            }
+
+            MmsValue_setVisibleString(trkInst->datSet->mmsValue, datSet);
+        }
+
+        if (trkInst->intgPd)
+            MmsValue_setUint32(trkInst->intgPd->mmsValue, logControl->intgPd);
+
+        if (trkInst->trgOps) {
+            MmsValue_setBitStringFromInteger(trkInst->trgOps->mmsValue, logControl->triggerOps * 2);
+        }
+
+        /* TODO update other attributes? */
+    }
+}
+
+#endif /* (CONFIG_IEC61850_SERVICE_TRACKING == 1) */
+
 MmsDataAccessError
 LIBIEC61850_LOG_SVC_writeAccessLogControlBlock(MmsMapping* self, MmsDomain* domain, char* variableIdOrig,
         MmsValue* value, MmsServerConnection connection)
 {
+    (void)connection;
+
+    MmsDataAccessError retVal = DATA_ACCESS_ERROR_SUCCESS;
+
     bool updateValue = false;
 
     char variableId[130];
 
-    strncpy(variableId, variableIdOrig, 129);
+    StringUtils_copyStringMax(variableId, 130, variableIdOrig);
 
     char* separator = strchr(variableId, '$');
 
@@ -394,8 +510,10 @@ LIBIEC61850_LOG_SVC_writeAccessLogControlBlock(MmsMapping* self, MmsDomain* doma
 
     char* varName = MmsMapping_getNextNameElement(objectName);
 
-    if (varName != NULL)
-        *(varName - 1) = 0;
+    if (varName == NULL)
+        return DATA_ACCESS_ERROR_INVALID_ADDRESS;
+
+    *(varName - 1) = 0;
 
     LogControl* logControl = lookupLogControl(self, domain, lnName, objectName);
 
@@ -417,8 +535,10 @@ LIBIEC61850_LOG_SVC_writeAccessLogControlBlock(MmsMapping* self, MmsDomain* doma
                 if (DEBUG_IED_SERVER)
                     printf("IED_SERVER: enabled log control %s\n", logControl->name);
             }
-            else
-                return DATA_ACCESS_ERROR_OBJECT_ATTRIBUTE_INCONSISTENT;
+            else {
+                retVal = DATA_ACCESS_ERROR_OBJECT_ATTRIBUTE_INCONSISTENT;
+                goto exit_function;
+            }
         }
 
        updateValue = true;
@@ -460,14 +580,17 @@ LIBIEC61850_LOG_SVC_writeAccessLogControlBlock(MmsMapping* self, MmsDomain* doma
                        logControl->logInstance = logInstance;
                        updateValue = true;
                    }
-                   else
-                       return DATA_ACCESS_ERROR_OBJECT_VALUE_INVALID;
-
+                   else {
+                       retVal = DATA_ACCESS_ERROR_OBJECT_VALUE_INVALID;
+                       goto exit_function;
+                   }
                }
             }
         }
-        else
-            return DATA_ACCESS_ERROR_TEMPORARILY_UNAVAILABLE;
+        else {
+            retVal = DATA_ACCESS_ERROR_TEMPORARILY_UNAVAILABLE;
+            goto exit_function;
+        }
     }
     else if (strcmp(varName, "DatSet") == 0) {
 
@@ -522,30 +645,36 @@ LIBIEC61850_LOG_SVC_writeAccessLogControlBlock(MmsMapping* self, MmsDomain* doma
                 if (dataSet == NULL) {
                     if (DEBUG_IED_SERVER)
                         printf("IED_SERVER:   data set (%s) not found!\n", logControl->dataSetRef);
-                    return DATA_ACCESS_ERROR_OBJECT_VALUE_INVALID;
+
+                    retVal = DATA_ACCESS_ERROR_OBJECT_VALUE_INVALID;
+                    goto exit_function;
                 }
             }
-
-
         }
-        else
-            return DATA_ACCESS_ERROR_TEMPORARILY_UNAVAILABLE;
+        else {
+            retVal = DATA_ACCESS_ERROR_TEMPORARILY_UNAVAILABLE;
+            goto exit_function;
+        }
     }
     else if (strcmp(varName, "IntgPd") == 0) {
         if (logControl->enabled == false) {
             logControl->intgPd = MmsValue_toUint32(value);
             updateValue = true;
         }
-        else
-            return DATA_ACCESS_ERROR_TEMPORARILY_UNAVAILABLE;
+        else {
+            retVal = DATA_ACCESS_ERROR_TEMPORARILY_UNAVAILABLE;
+            goto exit_function;
+        }
     }
     else if (strcmp(varName, "TrgOps") == 0) {
         if (logControl->enabled == false) {
             logControl->triggerOps = (MmsValue_getBitStringAsInteger(value) / 2);
             updateValue = true;
         }
-        else
-            return DATA_ACCESS_ERROR_TEMPORARILY_UNAVAILABLE;
+        else {
+            retVal = DATA_ACCESS_ERROR_TEMPORARILY_UNAVAILABLE;
+            goto exit_function;
+        }
     }
 
     if (updateValue) {
@@ -553,10 +682,20 @@ LIBIEC61850_LOG_SVC_writeAccessLogControlBlock(MmsMapping* self, MmsDomain* doma
 
         MmsValue_update(element, value);
 
-        return DATA_ACCESS_ERROR_SUCCESS;
+        retVal = DATA_ACCESS_ERROR_SUCCESS;
+        goto exit_function;
     }
 
-    return DATA_ACCESS_ERROR_OBJECT_ACCESS_DENIED;
+    retVal = DATA_ACCESS_ERROR_OBJECT_ACCESS_DENIED;
+
+exit_function:
+
+#if (CONFIG_IEC61850_SERVICE_TRACKING == 1)
+    copyLCBValuesToTrackingObject(self, logControl);
+    updateGenericTrackingObjectValues(self, logControl, IEC61850_SERVICE_TYPE_SET_LCB_VALUES, retVal);
+#endif
+
+    return retVal;
 }
 
 MmsValue*
@@ -566,7 +705,7 @@ LIBIEC61850_LOG_SVC_readAccessControlBlock(MmsMapping* self, MmsDomain* domain, 
 
     char variableId[130];
 
-    strncpy(variableId, variableIdOrig, 129);
+    StringUtils_copyStringMax(variableId, 140, variableIdOrig);
 
     char* separator = strchr(variableId, '$');
 
@@ -684,12 +823,13 @@ createLogControlBlock(MmsMapping* self, LogControlBlock* logControlBlock,
     if (logControlBlock->logRef != NULL) {
         char logRef[130];
 
-        int maxLogRefLength = 129 - strlen(self->model->name);
-
-        strcpy(logRef, self->model->name);
-        strncat(logRef, logControlBlock->logRef, maxLogRefLength);
+        StringUtils_concatString(logRef, 130, self->model->name, logControlBlock->logRef);
 
         mmsValue->value.structure.components[1] = MmsValue_newVisibleString(logRef);
+
+        StringUtils_replace(logRef, '$', '.');
+
+        logControl->logRef = StringUtils_copyString(logRef);
     }
     else {
         char* logRef = StringUtils_createString(4, logControl->domain->domainName, "/", logControlBlock->parent->name,
@@ -697,7 +837,9 @@ createLogControlBlock(MmsMapping* self, LogControlBlock* logControlBlock,
 
         mmsValue->value.structure.components[1] = MmsValue_newVisibleString(logRef);
 
-        GLOBAL_FREEMEM(logRef);
+        StringUtils_replace(logRef, '$', '.');
+
+        logControl->logRef = logRef;
     }
 
     /* DatSet */
@@ -851,18 +993,21 @@ LogControl_logAllDatasetEntries(LogControl* self, const char* iedName)
 
         uint64_t entryID = LogInstance_logEntryStart(log);
 
-        DataSetEntry* dataSetEntry = self->dataSet->fcdas;
+        if (entryID != 0) {
 
-        while (dataSetEntry != NULL) {
+            DataSetEntry* dataSetEntry = self->dataSet->fcdas;
 
-            sprintf(dataRef, "%s%s/%s", iedName, dataSetEntry->logicalDeviceName, dataSetEntry->variableName);
+            while (dataSetEntry != NULL) {
 
-            LogInstance_logEntryData(log, entryID, dataRef, dataSetEntry->value, TRG_OPT_INTEGRITY * 2);
+                sprintf(dataRef, "%s%s/%s", iedName, dataSetEntry->logicalDeviceName, dataSetEntry->variableName);
 
-            dataSetEntry = dataSetEntry->sibling;
+                LogInstance_logEntryData(log, entryID, dataRef, dataSetEntry->value, TRG_OPT_INTEGRITY * 2);
+
+                dataSetEntry = dataSetEntry->sibling;
+            }
+
+            LogInstance_logEntryFinished(log, entryID);
         }
-
-        LogInstance_logEntryFinished(log, entryID);
 
     }
 }
@@ -910,8 +1055,7 @@ MmsMapping_setLogStorage(MmsMapping* self, const char* logRef, LogStorage logSto
 
         char domainNameWithIEDName[65];
 
-        strcpy(domainNameWithIEDName, self->model->name);
-        strcat(domainNameWithIEDName, domainName);
+        StringUtils_concatString(domainNameWithIEDName, 65, self->model->name, domainName);
 
         MmsDomain* mmsDomain = MmsDevice_getDomain(self->mmsDevice, domainNameWithIEDName);
 

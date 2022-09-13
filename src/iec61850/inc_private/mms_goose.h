@@ -1,7 +1,7 @@
 /*
  *  mms_goose.h
  *
- *  Copyright 2013 Michael Zillgith
+ *  Copyright 2013-2019 Michael Zillgith
  *
  *  This file is part of libIEC61850.
  *
@@ -24,51 +24,55 @@
 #ifndef MMS_GOOSE_H_
 #define MMS_GOOSE_H_
 
-typedef struct sMmsGooseControlBlock* MmsGooseControlBlock;
-
-MmsGooseControlBlock
+LIB61850_INTERNAL MmsGooseControlBlock
 MmsGooseControlBlock_create(void);
 
-void
+LIB61850_INTERNAL void
 MmsGooseControlBlock_destroy(MmsGooseControlBlock self);
 
-MmsDomain*
+LIB61850_INTERNAL MmsDomain*
 MmsGooseControlBlock_getDomain(MmsGooseControlBlock self);
 
-char*
+LIB61850_INTERNAL void
+MmsGooseControlBlock_useGooseVlanTag(MmsGooseControlBlock self, bool useVlanTag);
+
+LIB61850_INTERNAL void
+MmsGooseControlBlock_setGooseInterfaceId(MmsGooseControlBlock self, const char* interfaceId);
+
+LIB61850_INTERNAL char*
 MmsGooseControlBlock_getLogicalNodeName(MmsGooseControlBlock self);
 
-char*
-MmsGooseControlBlock_getName(MmsGooseControlBlock self);
-
-MmsValue*
+LIB61850_INTERNAL MmsValue*
 MmsGooseControlBlock_getGCBValue(MmsGooseControlBlock self, char* elementName);
 
-MmsValue*
+LIB61850_INTERNAL MmsValue*
 MmsGooseControlBlock_getMmsValues(MmsGooseControlBlock self);
 
-MmsVariableSpecification*
+LIB61850_INTERNAL MmsVariableSpecification*
 MmsGooseControlBlock_getVariableSpecification(MmsGooseControlBlock self);
 
-DataSet*
-MmsGooseControlBlock_getDataSet(MmsGooseControlBlock self);
-
-bool
+LIB61850_INTERNAL bool
 MmsGooseControlBlock_isEnabled(MmsGooseControlBlock self);
 
-void
-MmsGooseControlBlock_checkAndPublish(MmsGooseControlBlock self, uint64_t currentTime);
+LIB61850_INTERNAL void
+MmsGooseControlBlock_checkAndPublish(MmsGooseControlBlock self, uint64_t currentTime, MmsMapping* mapping);
 
-void
-MmsGooseControlBlock_observedObjectChanged(MmsGooseControlBlock self);
+LIB61850_INTERNAL void
+MmsGooseControlBlock_setStateChangePending(MmsGooseControlBlock self);
 
-void
-MmsGooseControlBlock_enable(MmsGooseControlBlock self);
+LIB61850_INTERNAL void
+MmsGooseControlBlock_publishNewState(MmsGooseControlBlock self);
 
-void
-MmsGooseControlBlock_disable(MmsGooseControlBlock self);
+LIB61850_INTERNAL bool
+MmsGooseControlBlock_enable(MmsGooseControlBlock self, MmsMapping* mmsMapping);
 
-MmsVariableSpecification*
+LIB61850_INTERNAL void
+MmsGooseControlBlock_disable(MmsGooseControlBlock self, MmsMapping* mmsMapping);
+
+LIB61850_INTERNAL void
+GOOSE_sendPendingEvents(MmsMapping* self);
+
+LIB61850_INTERNAL MmsVariableSpecification*
 GOOSE_createGOOSEControlBlocks(MmsMapping* self, MmsDomain* domain,
         LogicalNode* logicalNode, int gseCount);
 

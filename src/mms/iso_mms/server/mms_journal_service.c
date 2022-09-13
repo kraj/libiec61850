@@ -1,7 +1,7 @@
 /*
  *  mms_journal_service.c
  *
- *  Copyright 2016 Michael Zillgith
+ *  Copyright 2016-2021 Michael Zillgith
  *
  *  This file is part of libIEC61850.
  *
@@ -40,16 +40,6 @@ struct sJournalVariable {
    JournalVariable next;
 };
 
-typedef struct {
-    uint8_t* entryID;
-    int entryIDSize;
-
-    uint64_t timestamp;
-
-    JournalVariable listOfVariables;
-} JournalEntry;
-
-
 typedef struct sJournalEncoder* JournalEncoder;
 
 struct sJournalEncoder {
@@ -57,7 +47,7 @@ struct sJournalEncoder {
     int maxSize;
     int bufPos;
     int currentEntryBufPos; /* store start buffer position of current entry in case the whole JournalEntry will become too long */
-    uint64_t currentEntryId; //TODO use a byte array for the generic MMS case!
+    uint64_t currentEntryId; /* For generic MMS case a byte array would be required! */
     uint64_t currentTimestamp;
     bool moreFollows;
 };
@@ -92,7 +82,7 @@ entryDataCallback (void* parameter, const char* dataRef, uint8_t* data, int data
 
     uint8_t* buffer = encoder->buffer;
 
-    //TODO check if entry is too long for buffer!
+    /* TODO check if entry is too long for buffer! */
 
     if (moreFollow) {
         int bufPos = encoder->bufPos;
@@ -202,20 +192,20 @@ parseStringWithMaxLength(char* filename, int maxLength, uint8_t* buffer, int* bu
     int length;
 
     if (tag != 0x1a) {
-      mmsMsg_createMmsRejectPdu(&invokeId, MMS_ERROR_REJECT_INVALID_PDU, response);
-      return false;
+        mmsMsg_createMmsRejectPdu(&invokeId, MMS_ERROR_REJECT_INVALID_PDU, response);
+        return false;
     }
 
     *bufPos = BerDecoder_decodeLength(buffer, &length, *bufPos, maxBufPos);
 
-    if (*bufPos < 0)  {
-      mmsMsg_createMmsRejectPdu(&invokeId, MMS_ERROR_REJECT_INVALID_PDU, response);
-      return false;
+    if (*bufPos < 0) {
+        mmsMsg_createMmsRejectPdu(&invokeId, MMS_ERROR_REJECT_INVALID_PDU, response);
+        return false;
     }
 
     if (length > maxLength) {
-      mmsMsg_createMmsRejectPdu(&invokeId, MMS_ERROR_REJECT_REQUEST_INVALID_ARGUMENT, response);
-      return false;
+        mmsMsg_createMmsRejectPdu(&invokeId, MMS_ERROR_REJECT_REQUEST_INVALID_ARGUMENT, response);
+        return false;
     }
 
     memcpy(filename, buffer + *bufPos, length);
@@ -327,7 +317,7 @@ mmsServer_handleReadJournalRequest(
                 }
                 else {
                     mmsMsg_createMmsRejectPdu(&invokeId, MMS_ERROR_REJECT_REQUEST_INVALID_ARGUMENT, response);
-                    return;    // forward request to implementation class
+                    return;    /* forward request to implementation class */
                 }
 
                 bufPos += length;
@@ -361,7 +351,7 @@ mmsServer_handleReadJournalRequest(
                 }
                 else {
                     mmsMsg_createMmsRejectPdu(&invokeId, MMS_ERROR_REJECT_REQUEST_INVALID_ARGUMENT, response);
-                    return;    // forward request to implementation class
+                    return;    /* forward request to implementation class */
                 }
 
                 bufPos += length;
@@ -433,7 +423,7 @@ mmsServer_handleReadJournalRequest(
         }
     }
 
-    //TODO check if required fields are present
+    /* check if required fields are present */
     if (hasNames == false) {
         if (DEBUG_MMS_SERVER)
             printf("MMS_SERVER: readJournal missing journal name\n");
@@ -442,7 +432,7 @@ mmsServer_handleReadJournalRequest(
         return;
     }
 
-    //TODO check valid field combinations
+    /* TODO check valid field combinations */
 
     /* lookup journal */
     MmsDevice* mmsDevice = MmsServer_getDevice(connection->server);
@@ -453,7 +443,8 @@ mmsServer_handleReadJournalRequest(
         if (DEBUG_MMS_SERVER)
             printf("MMS_SERVER: readJournal domain %s not found\n", domainId);
 
-        mmsMsg_createMmsRejectPdu(&invokeId, MMS_ERROR_REJECT_REQUEST_INVALID_ARGUMENT, response);
+        mmsMsg_createServiceErrorPdu(invokeId, response, MMS_ERROR_ACCESS_OBJECT_NON_EXISTENT);
+
         return;
     }
 
@@ -463,7 +454,8 @@ mmsServer_handleReadJournalRequest(
         if (DEBUG_MMS_SERVER)
             printf("MMS_SERVER: readJournal journal %s not found\n", logName);
 
-        mmsMsg_createMmsRejectPdu(&invokeId, MMS_ERROR_REJECT_REQUEST_INVALID_ARGUMENT, response);
+        mmsMsg_createServiceErrorPdu(invokeId, response, MMS_ERROR_ACCESS_OBJECT_NON_EXISTENT);
+
         return;
     }
 
@@ -494,6 +486,7 @@ mmsServer_handleReadJournalRequest(
                 printf("MMS_SERVER: readJournal missing valid argument combination\n");
 
             mmsMsg_createMmsRejectPdu(&invokeId, MMS_ERROR_REJECT_REQUEST_INVALID_ARGUMENT, response);
+
             return;
         }
 

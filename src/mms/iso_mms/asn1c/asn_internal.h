@@ -11,7 +11,6 @@
 
 #include "asn_application.h"	/* Application-visible API */
 
-//#include "libiec61850_platform_includes.h"
 #include "lib_memory.h"
 
 #ifndef	__NO_ASSERT_H__		/* Include assert.h only for internal use. */
@@ -24,7 +23,7 @@ extern "C" {
 
 /* Environment version might be used to avoid running with the old library */
 #define	ASN1C_ENVIRONMENT_VERSION	920	/* Compile-time version */
-int get_asn1c_environment_version(void);	/* Run-time version */
+LIB61850_INTERNAL int get_asn1c_environment_version(void);	/* Run-time version */
 
 #if 0
 #ifndef CALLOC

@@ -24,8 +24,50 @@
 #include "libiec61850_platform_includes.h"
 #include "ber_decode.h"
 
-int
-BerDecoder_decodeLength(uint8_t* buffer, int* length, int bufPos, int maxBufPos)
+static int
+BerDecoder_decodeLengthRecursive(uint8_t* buffer, int* length, int bufPos, int maxBufPos, int depth, int maxDepth);
+
+static int
+getIndefiniteLength(uint8_t* buffer, int bufPos, int maxBufPos, int depth, int maxDepth)
+{
+    depth++;
+
+    if (depth > maxDepth)
+        return -1;
+
+    int length = 0;
+
+    while (bufPos < maxBufPos) {
+        if ((buffer[bufPos] == 0) && ((bufPos + 1) < maxBufPos) && (buffer[bufPos+1] == 0)) {
+            return length + 2;
+        }
+        else {
+            length++;
+
+            if ((buffer[bufPos++] & 0x1f) == 0x1f) {
+                /* handle extended tags */
+                bufPos++;
+                length++;
+            }
+
+            int subLength = -1;
+
+            int newBufPos = BerDecoder_decodeLengthRecursive(buffer, &subLength, bufPos, maxBufPos, depth, maxDepth);
+
+            if (newBufPos == -1)
+                return -1;
+
+            length += subLength + newBufPos - bufPos;
+
+            bufPos = newBufPos + subLength;
+        }
+    }
+
+    return -1;
+}
+
+static int
+BerDecoder_decodeLengthRecursive(uint8_t* buffer, int* length, int bufPos, int maxBufPos, int depth, int maxDepth)
 {
     if (bufPos >= maxBufPos)
         return -1;
@@ -36,7 +78,7 @@ BerDecoder_decodeLength(uint8_t* buffer, int* length, int bufPos, int maxBufPos)
         int lenLength = len1 & 0x7f;
 
         if (lenLength == 0) { /* indefinite length form */
-            *length = -1;
+            *length = getIndefiniteLength(buffer, bufPos, maxBufPos, depth, maxDepth);
         }
         else {
             *length = 0;
@@ -44,6 +86,9 @@ BerDecoder_decodeLength(uint8_t* buffer, int* length, int bufPos, int maxBufPos)
             int i;
             for (i = 0; i < lenLength; i++) {
                 if (bufPos >= maxBufPos)
+                    return -1;
+
+                if (bufPos + (*length) > maxBufPos)
                     return -1;
 
                 *length <<= 8;
@@ -59,15 +104,27 @@ BerDecoder_decodeLength(uint8_t* buffer, int* length, int bufPos, int maxBufPos)
     if (*length < 0)
         return -1;
 
+    if (*length > maxBufPos)
+        return -1;
+
     if (bufPos + (*length) > maxBufPos)
         return -1;
 
     return bufPos;
 }
 
+int
+BerDecoder_decodeLength(uint8_t* buffer, int* length, int bufPos, int maxBufPos)
+{
+    return BerDecoder_decodeLengthRecursive(buffer, length, bufPos, maxBufPos, 0, 50);
+}
+
 char*
 BerDecoder_decodeString(uint8_t* buffer, int strlen, int bufPos, int maxBufPos)
 {
+    if (maxBufPos - bufPos < 0)
+        return NULL;
+
     char* string = (char*) GLOBAL_MALLOC(strlen + 1);
     memcpy(string, buffer + bufPos, strlen);
     string[strlen] = 0;

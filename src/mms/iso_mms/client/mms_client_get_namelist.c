@@ -1,24 +1,24 @@
 /*
  *  mms_client_get_namelist.c
  *
- *  Copyright 2013 Michael Zillgith
+ *  Copyright 2013-2018 Michael Zillgith
  *
- *	This file is part of libIEC61850.
+ *  This file is part of libIEC61850.
  *
- *	libIEC61850 is free software: you can redistribute it and/or modify
- *	it under the terms of the GNU General Public License as published by
- *	the Free Software Foundation, either version 3 of the License, or
- *	(at your option) any later version.
+ *  libIEC61850 is free software: you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation, either version 3 of the License, or
+ *  (at your option) any later version.
  *
- *	libIEC61850 is distributed in the hope that it will be useful,
- *	but WITHOUT ANY WARRANTY; without even the implied warranty of
- *	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *	GNU General Public License for more details.
+ *  libIEC61850 is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  GNU General Public License for more details.
  *
- *	You should have received a copy of the GNU General Public License
- *	along with libIEC61850.  If not, see <http://www.gnu.org/licenses/>.
+ *  You should have received a copy of the GNU General Public License
+ *  along with libIEC61850.  If not, see <http://www.gnu.org/licenses/>.
  *
- *	See COPYING file for the complete license text.
+ *  See COPYING file for the complete license text.
  */
 
 #include "libiec61850_platform_includes.h"
@@ -108,34 +108,33 @@ mmsClient_createMmsGetNameListRequestAssociationSpecific(long invokeId, ByteBuff
 }
 
 bool
-mmsClient_parseGetNameListResponse(LinkedList* nameList, ByteBuffer* message, uint32_t* invokeId)
+mmsClient_parseGetNameListResponse(LinkedList* nameList, ByteBuffer* message)
 {
-	bool moreFollows = true;
+    /* TODO only parse get name list specific part here */
 
-	uint8_t* buffer = message->buffer;
-	int maxBufPos = message->size;
-	int bufPos = 0;
-	int length;
+    bool moreFollows = true;
 
-	uint8_t tag = buffer[bufPos++];
-	if (tag == 0xa2) {
-	    // TODO parse confirmed error PDU
-	    goto exit_error;
-	}
-	if (tag != 0xa1) goto exit_error;
+    uint8_t* buffer = message->buffer;
+    int maxBufPos = message->size;
+    int bufPos = 0;
+    int length;
 
-	bufPos = BerDecoder_decodeLength(buffer, &length, bufPos, maxBufPos);
-	if (bufPos < 0) goto exit_error;
+    uint8_t tag = buffer[bufPos++];
+    if (tag == 0xa2) {
+        /* TODO parse confirmed error PDU */
+        goto exit_error;
+    }
+    if (tag != 0xa1) goto exit_error;
 
-	/* get invokeId */
-	tag = buffer[bufPos++];
-	if (tag != 0x02) goto exit_error;
-
-	bufPos = BerDecoder_decodeLength(buffer, &length, bufPos, maxBufPos);
+    bufPos = BerDecoder_decodeLength(buffer, &length, bufPos, maxBufPos);
     if (bufPos < 0) goto exit_error;
 
-    if (invokeId != NULL)
-        *invokeId = BerDecoder_decodeUint32(buffer, length, bufPos);
+    /* get invokeId */
+    tag = buffer[bufPos++];
+    if (tag != 0x02) goto exit_error;
+
+    bufPos = BerDecoder_decodeLength(buffer, &length, bufPos, maxBufPos);
+    if (bufPos < 0) goto exit_error;
 
     bufPos += length;
 
@@ -152,7 +151,6 @@ mmsClient_parseGetNameListResponse(LinkedList* nameList, ByteBuffer* message, ui
     if (bufPos < 0) goto exit_error;
 
     int listEndPos = bufPos + length;
-    if (listEndPos > maxBufPos) goto exit_error;
 
     if (*nameList == NULL)
         *nameList = LinkedList_create();
@@ -175,10 +173,15 @@ mmsClient_parseGetNameListResponse(LinkedList* nameList, ByteBuffer* message, ui
 
     if (bufPos < maxBufPos) {
 		tag = buffer[bufPos++];
+
 		if (tag != 0x81) goto exit_error;
+
 		bufPos = BerDecoder_decodeLength(buffer, &length, bufPos, maxBufPos);
+
 		if (bufPos < 0) goto exit_error;
+
 		if (length != 1) goto exit_error;
+
 		if (buffer[bufPos++] > 0)
 			moreFollows = true;
 		else
@@ -190,6 +193,7 @@ mmsClient_parseGetNameListResponse(LinkedList* nameList, ByteBuffer* message, ui
 exit_error:
     if (*nameList != NULL) {
         LinkedList_destroy(*nameList);
+        *nameList = NULL;
     }
 
     if (DEBUG) printf("parseNameListResponse: error parsing message!\n");

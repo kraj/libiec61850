@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 2.8)
+cmake_minimum_required(VERSION 3.5.1)
 
 # automagically detect if we should cross-compile
 if(DEFINED ENV{TOOLCHAIN})
@@ -11,8 +11,8 @@ project(libiec61850)
 ENABLE_TESTING()
 
 set(LIB_VERSION_MAJOR "1")
-set(LIB_VERSION_MINOR "2")
-set(LIB_VERSION_PATCH "0")
+set(LIB_VERSION_MINOR "5")
+set(LIB_VERSION_PATCH "1")
 set(LIB_VERSION "${LIB_VERSION_MAJOR}.${LIB_VERSION_MINOR}.${LIB_VERSION_PATCH}")
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/third_party/cmake/modules/")
@@ -36,13 +36,21 @@ option(CONFIG_MMS_THREADLESS_STACK "Optimize stack for threadless operation (war
 option(CONFIG_ACTIVATE_TCP_KEEPALIVE "Activate TCP keepalive" ON)
 option(CONFIG_INCLUDE_GOOSE_SUPPORT "Build with GOOSE support" ON)
 
+option(CONFIG_USE_EXTERNAL_MBEDTLS_DYNLIB "Build with pre-compiled mbedtls dynamic library" OFF)
+
+set(CONFIG_EXTERNAL_MBEDTLS_DYNLIB_PATH "${CMAKE_CURRENT_LIST_DIR}/third_party/mbedtls/mbedtls-2.16/library" CACHE STRING "Path to search for the mbedtls dynamic libraries" )
+set(CONFIG_EXTERNAL_MBEDTLS_INCLUDE_PATH "${CMAKE_CURRENT_LIST_DIR}/third_party/mbedtls/mbedtls-2.16/include" CACHE STRING "Path to search for the mbedtls include files" )
+
 # choose the library features which shall be included
 option(CONFIG_IEC61850_CONTROL_SERVICE "Build with support for IEC 61850 control features" ON)
 option(CONFIG_IEC61850_REPORT_SERVICE "Build with support for IEC 61850 reporting services" ON)
 option(CONFIG_IEC61850_LOG_SERVICE "Build with support for IEC 61850 logging services" ON)
+option(CONFIG_IEC61850_SERVICE_TRACKING "Build with support for IEC 61850 service tracking" ON)
 option(CONFIG_IEC61850_SETTING_GROUPS "Build with support for IEC 61850 setting group services" ON)
+option(CONFIG_IEC61850_SUPPORT_USER_READ_ACCESS_CONTROL "Allow user provided callback to control read access" ON)
+option(CONFIG_IEC61850_RCB_ALLOW_ONLY_PRECONFIGURED_CLIENT "allow only configured clients (when pre-configured by ClientLN)" OFF)
 
-set(CONFIG_REPORTING_DEFAULT_REPORT_BUFFER_SIZE "8000" CACHE STRING "Default buffer size for buffered reports in byte" )
+set(CONFIG_REPORTING_DEFAULT_REPORT_BUFFER_SIZE "65536" CACHE STRING "Default buffer size for buffered reports in byte" )
 
 # advanced options
 option(DEBUG "Enable debugging mode (include assertions)" OFF)
@@ -60,22 +68,6 @@ option(DEBUG_SV_SUBSCRIBER "Enable Sampled Values subscriber debugging" ${DEBUG}
 option(DEBUG_SV_PUBLISHER "Enable Sampled Values publisher debugging" ${DEBUG})
 option(DEBUG_HAL_ETHERNET "Enable Ethernet HAL printf debugging" ${DEBUG})
 
-#mark_as_advanced(
-#    DEBUG_SOCKET
-#    DEBUG_COTP
-#    DEBUG_ISO_SERVER
-#    DEBUG_ISO_CLIENT
-#    DEBUG_IED_SERVER
-#    DEBUG_IED_CLIENT
-#    DEBUG_MMS_SERVER
-#    DEBUG_MMS_CLIENT
-#    DEBUG_GOOSE_SUBSCRIBER
-#    DEBUG_GOOSE_PUBLISHER
-#    DEBUG_SV_SUBSCRIBER
-#    DEBUG_SV_PUBLISHER
-#    DEBUG_HAL_ETHERNET
-#)
-
 include_directories(
     ${CMAKE_CURRENT_BINARY_DIR}/config
     ${CMAKE_CURRENT_LIST_DIR}/src/common/inc
@@ -88,21 +80,18 @@ include_directories(
     ${CMAKE_CURRENT_LIST_DIR}/src/mms/inc_private
     ${CMAKE_CURRENT_LIST_DIR}/src/mms/iso_mms/asn1c
     ${CMAKE_CURRENT_LIST_DIR}/src/logging
-    ${CMAKE_CURRENT_LIST_DIR}/src/tls
 )
 
 set(API_HEADERS
-    src/hal/inc/hal_time.h
-    src/hal/inc/hal_thread.h
-    src/hal/inc/hal_filesystem.h
-    src/hal/inc/hal_ethernet.h
-    src/hal/inc/platform_endian.h
+    hal/inc/hal_base.h
+    hal/inc/hal_time.h
+    hal/inc/hal_thread.h
+    hal/inc/hal_filesystem.h
+    hal/inc/hal_ethernet.h
+    hal/inc/hal_socket.h
+    hal/inc/tls_config.h
     src/common/inc/libiec61850_common_api.h
-    src/common/inc/libiec61850_platform_includes.h
     src/common/inc/linked_list.h
-    src/common/inc/byte_buffer.h
-    src/common/inc/lib_memory.h
-    src/common/inc/string_utilities.h
     src/iec61850/inc/iec61850_client.h
     src/iec61850/inc/iec61850_common.h
     src/iec61850/inc/iec61850_server.h
@@ -113,45 +102,38 @@ set(API_HEADERS
     src/mms/inc/mms_value.h
     src/mms/inc/mms_common.h
     src/mms/inc/mms_types.h
-    src/mms/inc/mms_device_model.h
-    src/mms/inc/mms_server.h
-    src/mms/inc/mms_named_variable_list.h
     src/mms/inc/mms_type_spec.h
     src/mms/inc/mms_client_connection.h
+    src/mms/inc/mms_server.h
     src/mms/inc/iso_connection_parameters.h
-    src/mms/inc/iso_server.h
-    src/mms/inc/ber_integer.h
-    src/mms/inc/asn1_ber_primitive_value.h
     src/goose/goose_subscriber.h
     src/goose/goose_receiver.h
     src/goose/goose_publisher.h
     src/sampled_values/sv_subscriber.h
     src/sampled_values/sv_publisher.h
     src/logging/logging_api.h
-    src/tls/tls_api.h
-    ${CMAKE_CURRENT_BINARY_DIR}/config/stack_config.h
 )
 
-if(MSVC)
+if(MSVC AND MSVC_VERSION LESS 1800)
     include_directories(
         ${CMAKE_CURRENT_LIST_DIR}/src/vs
     )
-endif(MSVC)
+endif(MSVC AND MSVC_VERSION LESS 1800)
 
-if(EXISTS ${CMAKE_CURRENT_LIST_DIR}/third_party/mbedtls/mbedtls-2.6.0)
+if(CONFIG_USE_EXTERNAL_MBEDTLS_DYNLIB)
 set(WITH_MBEDTLS 1)
-endif(EXISTS ${CMAKE_CURRENT_LIST_DIR}/third_party/mbedtls/mbedtls-2.6.0)
+set(USE_PREBUILD_MBEDTLS 1)
+set(MBEDTLS_INCLUDE_DIR ${CONFIG_EXTERNAL_MBEDTLS_INCLUDE_PATH})
+endif(CONFIG_USE_EXTERNAL_MBEDTLS_DYNLIB)
+
+if(EXISTS ${CMAKE_CURRENT_LIST_DIR}/third_party/mbedtls/mbedtls-2.16)
+set(WITH_MBEDTLS 1)
+set(MBEDTLS_INCLUDE_DIR "${CMAKE_CURRENT_LIST_DIR}/third_party/mbedtls/mbedtls-2.16/include")
+endif(EXISTS ${CMAKE_CURRENT_LIST_DIR}/third_party/mbedtls/mbedtls-2.16)
 
 if(WITH_MBEDTLS)
-include_directories(
-    ${CMAKE_CURRENT_LIST_DIR}/src/tls/mbedtls
-    ${CMAKE_CURRENT_LIST_DIR}/third_party/mbedtls/mbedtls-2.6.0/include
-)
-
-file(GLOB tls_SRCS ${CMAKE_CURRENT_LIST_DIR}/third_party/mbedtls/mbedtls-2.6.0/library/*.c)
 
 add_definitions(-DCONFIG_MMS_SUPPORT_TLS=1)
-add_definitions(-DMBEDTLS_CONFIG_FILE="mbedtls_config.h")
 
 endif(WITH_MBEDTLS)
 
@@ -160,6 +142,16 @@ configure_file(
     ${CMAKE_CURRENT_LIST_DIR}/config/stack_config.h.cmake
     ${CMAKE_CURRENT_BINARY_DIR}/config/stack_config.h
 )
+
+include_directories(
+	${CMAKE_CURRENT_LIST_DIR}/hal/inc
+)
+
+add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/hal")
+
+if(DEBUG)
+	set(CMAKE_BUILD_TYPE Debug)
+endif(DEBUG)
 
 if(BUILD_EXAMPLES)
     add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/examples)
@@ -191,3 +183,5 @@ if(EXISTS "${CMAKE_ROOT}/Modules/CPack.cmake")
 
     include(CPack)
 endif(EXISTS "${CMAKE_ROOT}/Modules/CPack.cmake")
+
+

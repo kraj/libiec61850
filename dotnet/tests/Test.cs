@@ -49,6 +49,15 @@ namespace tests
 			Assert.AreEqual(7, val.BitStringToUInt32());
 		}
 
+        [Test ()]
+        public void MmsValueUtcTime ()
+        {
+            var val = MmsValue.NewUtcTime (100000);
+            val.GetUtcTimeInMs ();
+
+            Assert.AreEqual (val.GetUtcTimeInMs (), 100000);
+        }
+
 		[Test()]
 		public void MmsValueOctetString ()
 		{
@@ -103,6 +112,57 @@ namespace tests
 			Assert.AreEqual (val.ToDouble (), (double) 0.1234);
 
 			Assert.AreEqual (val.ToFloat (), (float)0.1234);
+		}
+
+		[Test()]
+		public void MmsValueArray()
+		{
+			MmsValue val = MmsValue.NewEmptyArray (3);
+
+			val.SetElement (0, new MmsValue (1));
+			val.SetElement (1, new MmsValue (2));
+			val.SetElement (2, new MmsValue (3));
+
+			Assert.AreEqual (val.GetType (), MmsType.MMS_ARRAY);
+			Assert.AreEqual (val.Size (), 3);
+
+			MmsValue elem0 = val.GetElement (0);
+
+			Assert.AreEqual (elem0.GetType (), MmsType.MMS_INTEGER);
+			Assert.AreEqual (elem0.ToInt32 (), 1);
+
+			MmsValue elem2 = val.GetElement (2);
+
+			Assert.AreEqual (elem2.GetType (), MmsType.MMS_INTEGER);
+			Assert.AreEqual (elem2.ToInt32 (), 3);
+
+            val.SetElement (0, null);
+            val.SetElement (1, null);
+            val.SetElement (2, null);
+        }
+
+		[Test()]
+		public void MmsValueStructure()
+		{
+			MmsValue val = MmsValue.NewEmptyStructure (2);
+
+			val.SetElement (0, new MmsValue(true));
+			val.SetElement (1, MmsValue.NewBitString (10));
+
+			Assert.AreEqual (val.GetType (), MmsType.MMS_STRUCTURE);
+			Assert.AreEqual (val.Size (), 2);
+
+			MmsValue elem0 = val.GetElement (0);
+
+			Assert.AreEqual (elem0.GetType (), MmsType.MMS_BOOLEAN);
+			Assert.AreEqual (elem0.GetBoolean(), true);
+
+			MmsValue elem1 = val.GetElement (1);
+
+			Assert.AreEqual (elem1.GetType (), MmsType.MMS_BIT_STRING);
+
+            val.SetElement (0, null);
+            val.SetElement (1, null);
 		}
 
 		[Test ()]
@@ -184,7 +244,9 @@ namespace tests
 
 			Assert.AreEqual (list.ToArray () [0], "simpleIOGenericIO");
 
-			iedServer.Stop ();
+            Assert.IsTrue(iedServer.IsRunning());
+
+            iedServer.Stop ();
 
 			iedServer.Destroy ();
 		}
@@ -229,10 +291,38 @@ namespace tests
 			Assert.IsNotNull (modelNode);
 		}
 
-		[Test ()]
+        [Test()]
+        public void AccessDataModelServerSideNavigateModelNode()
+        {
+            IedModel iedModel = ConfigFileParser.CreateModelFromConfigFile("../../model.cfg");
+
+            ModelNode modelNode = iedModel.GetModelNodeByShortObjectReference("GenericIO/GGIO1.AnIn1");
+
+            Assert.IsNotNull(modelNode);
+
+            Assert.IsTrue(modelNode.GetType().Equals(typeof(DataObject)));
+
+            var children = modelNode.GetChildren();
+
+            Assert.AreEqual(3, children.Count);
+
+            ModelNode mag = children.First.Value;
+
+            Assert.AreEqual("mag", mag.GetName());
+
+            ModelNode t = children.Last.Value;
+
+            Assert.AreEqual("t", t.GetName());
+
+            //modelNode = iedModel.GetModelNodeByShortObjectReference("GenericIO/GGIO1.AnIn1.mag.f");
+
+            //Assert.IsTrue(modelNode.GetType().Equals(typeof(IEC61850.Server.DataAttribute)));
+        }
+
+        [Test ()]
 		public void AccessDataModelClientServer()
 		{
-			IedModel iedModel = ConfigFileParser.CreateModelFromConfigFile ("../../model.cfg");
+            IedModel iedModel = ConfigFileParser.CreateModelFromConfigFile("../../model.cfg");
 
 			ModelNode ind1 = iedModel.GetModelNodeByShortObjectReference ("GenericIO/GGIO1.Ind1.stVal");
 
@@ -322,10 +412,62 @@ namespace tests
 			iedServer.Destroy ();
 		}
 
-		[Test()]
+        [Test()]
+        public void ControlWriteAccessComplexDAToServer()
+        {
+            IedModel iedModel = ConfigFileParser.CreateModelFromConfigFile("../../model2.cfg");
+
+            IEC61850.Server.DataAttribute setAnVal_setMag = (IEC61850.Server.DataAttribute)iedModel.GetModelNodeByShortObjectReference("GenericIO/LLN0.SetAnVal.setMag");
+
+            IedServer iedServer = new IedServer(iedModel);
+
+            int handlerCalled = 0;
+
+            MmsValue receivedValue = null;
+
+            iedServer.SetWriteAccessPolicy(FunctionalConstraint.SP, AccessPolicy.ACCESS_POLICY_DENY);
+
+            iedServer.HandleWriteAccessForComplexAttribute(setAnVal_setMag, delegate (IEC61850.Server.DataAttribute dataAttr, MmsValue value, ClientConnection con, object parameter) {
+                receivedValue = value;
+                handlerCalled++;
+                return MmsDataAccessError.SUCCESS;
+            }, null);
+
+            iedServer.Start(10002);
+
+            IedConnection connection = new IedConnection();
+
+            connection.Connect("localhost", 10002);
+
+            MmsValue complexValue = MmsValue.NewEmptyStructure(1);
+            complexValue.SetElement(0, new MmsValue((float)1.0));
+
+            connection.WriteValue("simpleIOGenericIO/LLN0.SetAnVal.setMag", FunctionalConstraint.SP, complexValue);
+
+            Assert.NotNull(receivedValue);
+            Assert.AreEqual(MmsType.MMS_STRUCTURE, receivedValue.GetType());
+            Assert.AreEqual(1.0, receivedValue.GetElement(0).ToFloat());
+
+            receivedValue.Dispose();
+
+            receivedValue = null;
+
+            connection.WriteValue("simpleIOGenericIO/LLN0.SetAnVal.setMag.f", FunctionalConstraint.SP, new MmsValue((float)2.0));
+
+            Assert.NotNull(receivedValue);
+            Assert.AreEqual(MmsType.MMS_FLOAT, receivedValue.GetType());
+            Assert.AreEqual(2.0, receivedValue.ToFloat());
+
+            connection.Abort();
+
+            iedServer.Stop();
+
+            iedServer.Dispose();
+        }
+
+        [Test()]
 		public void WriteAccessPolicy()
 		{
-
 			IedModel iedModel = ConfigFileParser.CreateModelFromConfigFile ("../../model.cfg");
 
 			IEC61850.Server.DataAttribute opDlTmms = (IEC61850.Server.DataAttribute) iedModel.GetModelNodeByShortObjectReference("GenericIO/PDUP1.OpDlTmms.setVal");
@@ -333,7 +475,7 @@ namespace tests
 
 			IedServer iedServer = new IedServer (iedModel);
 
-			iedServer.HandleWriteAccess (opDlTmms, delegate(IEC61850.Server.DataAttribute dataAttr, MmsValue value, ClientConnection con, object parameter) {
+            iedServer.HandleWriteAccess (opDlTmms, delegate(IEC61850.Server.DataAttribute dataAttr, MmsValue value, ClientConnection con, object parameter) {
 				return MmsDataAccessError.SUCCESS;
 			}, null);
 				
@@ -344,7 +486,9 @@ namespace tests
 
 			connection.Connect ("localhost", 10002);
 
-			connection.WriteValue ("simpleIOGenericIO/PDUP1.RsDlTmms.setVal", FunctionalConstraint.SP, new MmsValue ((int)1234));
+            iedServer.SetWriteAccessPolicy(FunctionalConstraint.SP, AccessPolicy.ACCESS_POLICY_ALLOW);
+
+            connection.WriteValue ("simpleIOGenericIO/PDUP1.RsDlTmms.setVal", FunctionalConstraint.SP, new MmsValue ((int)1234));
 
 			iedServer.SetWriteAccessPolicy (FunctionalConstraint.SP, AccessPolicy.ACCESS_POLICY_DENY);
 
@@ -365,7 +509,7 @@ namespace tests
 
 			iedServer.Stop ();
 
-			iedServer.Destroy ();
+			iedServer.Dispose();
 		}
 
 		[Test()]
@@ -381,7 +525,17 @@ namespace tests
 
 			IedServer iedServer = new IedServer (iedModel);
 
-			iedServer.SetControlHandler (spcso1, delegate(DataObject controlObject, object parameter, MmsValue ctlVal, bool test) {
+			iedServer.SetControlHandler (spcso1, delegate(ControlAction action, object parameter, MmsValue ctlVal, bool test) {
+
+                byte [] orIdent = action.GetOrIdent ();
+
+                string orIdentStr = System.Text.Encoding.UTF8.GetString (orIdent, 0, orIdent.Length);
+
+                Assert.AreEqual ("TEST1234", orIdentStr);
+                Assert.AreEqual (OrCat.MAINTENANCE, action.GetOrCat ());
+
+                Assert.AreSame (spcso1, action.GetControlObject ());
+
 				handlerCalled++;
 				return ControlHandlerResult.OK;
 			}, null);
@@ -393,6 +547,7 @@ namespace tests
 			connection.Connect ("localhost", 10002);
 
 			ControlObject controlClient = connection.CreateControlObject ("simpleIOGenericIO/GGIO1.SPCSO1");
+            controlClient.SetOrigin ("TEST1234", OrCat.MAINTENANCE);
 
 			Assert.IsNotNull (controlClient);
 
@@ -404,7 +559,7 @@ namespace tests
 
 			iedServer.Stop ();
 
-			iedServer.Destroy ();
+			iedServer.Dispose();
 		}
 
 
@@ -453,6 +608,8 @@ namespace tests
 			Assert.AreEqual ("127.0.0.1:", ipAddress.Substring (0, 10));
 
 			iedServer.Stop ();
+
+            iedServer.Dispose();
 		}
 
 		[Test()]
@@ -481,6 +638,45 @@ namespace tests
 
 			Assert.AreEqual (Validity.QUESTIONABLE, q.Validity);
 		}
-	}
+
+        [Test()]
+        public void MmsValueCreateStructureAndAddElement()
+        {
+            MmsValue structure1 = MmsValue.NewEmptyStructure(1);
+            MmsValue structure2 = MmsValue.NewEmptyStructure(1);
+            MmsValue element = MmsValue.NewEmptyStructure(1);
+
+            structure1.SetElement(0, element);
+
+            /* Clone is required when adding the value to another structure or element */
+            MmsValue elementClone = element.Clone();
+            structure2.SetElement(0, elementClone);
+
+            element.Dispose();
+
+            structure1.Dispose();
+            structure2.Dispose();
+
+            Assert.AreEqual(true, true);
+        }
+
+        [Test()]
+        public void MmsValueClone()
+        {
+            MmsValue boolValue = new MmsValue(true);
+
+            MmsValue boolClone = boolValue.Clone();
+
+            boolValue.Dispose();
+            boolClone.Dispose();
+
+            MmsValue structure = MmsValue.NewEmptyStructure(1);
+            MmsValue structureClone = structure.Clone();
+
+            structure.Dispose();
+            structureClone.Dispose();
+        }
+
+    }
 }
 

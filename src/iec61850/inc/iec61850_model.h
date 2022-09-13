@@ -87,6 +87,7 @@ typedef struct sLogControlBlock LogControlBlock;
 typedef struct sLog Log;
 
 typedef enum {
+	IEC61850_UNKNOWN_TYPE = -1,
 	IEC61850_BOOLEAN = 0,/* int */
 	IEC61850_INT8 = 1,   /* int8_t */
 	IEC61850_INT16 = 2,  /* int16_t */
@@ -264,7 +265,13 @@ struct sReportControlBlock {
     uint32_t bufferTime; /* BufTm - time to buffer events until a report is generated */
     uint32_t intPeriod; /* IntgPd - integrity period */
 
-    ReportControlBlock* sibling; /* next control block in list or NULL if this is the last entry */
+    /* type (first byte) and address of the pre-configured client
+       type can be one of (0 - no reservation, 4 - IPv4 client, 6 - IPv6 client) */
+    uint8_t clientReservation[17];
+
+    ReportControlBlock* sibling; /* next control block in list or NULL if this is the last entry
+                                  * at runtime reuse as pointer to ReportControl instance!
+                                  **/
 };
 
 struct sLogControlBlock {
@@ -273,7 +280,7 @@ struct sLogControlBlock {
     char* name;
 
     char* dataSetName;
-    char* logRef;        /* object reference to the journal. Defaults to <MMS DomainName>/<LNName>$GeneralLog */
+    char* logRef;        /* object reference to the journal */
 
     uint8_t trgOps;      /* TrgOps - trigger conditions */
     uint32_t intPeriod;  /* IntgPd - integrity period */
@@ -350,7 +357,7 @@ struct sSVControlBlock {
  * \return the number of children of the model node
  * ¸
  */
-int
+LIB61850_API int
 ModelNode_getChildCount(ModelNode* self);
 
 /**
@@ -361,7 +368,7 @@ ModelNode_getChildCount(ModelNode* self);
  *
  * \return  the model node instance or NULL if model node does not exist.
  */
-ModelNode*
+LIB61850_API ModelNode*
 ModelNode_getChild(ModelNode* self, const char* name);
 
 /**
@@ -377,7 +384,7 @@ ModelNode_getChild(ModelNode* self, const char* name);
  *
  * \return  the model node instance or NULL if model node does not exist.
  */
-ModelNode*
+LIB61850_API ModelNode*
 ModelNode_getChildWithFc(ModelNode* self, const char* name, FunctionalConstraint fc);
 
 /**
@@ -389,8 +396,21 @@ ModelNode_getChildWithFc(ModelNode* self, const char* name, FunctionalConstraint
  *
  * \return the object reference string
  */
-char*
+LIB61850_API char*
 ModelNode_getObjectReference(ModelNode* self, char* objectReference);
+
+/**
+ * \brief Return the IEC 61850 object reference of a model node
+ *
+ * \param self the model node instance
+ * \param objectReference pointer to a buffer where to write the object reference string. If NULL
+ *        is given the buffer is allocated by the function.
+ * \param withoutIedName create object reference without IED name part
+ *
+ * \return the object reference string
+ */
+LIB61850_API char*
+ModelNode_getObjectReferenceEx(ModelNode* node, char* objectReference, bool withoutIedName);
 
 /**
  * \brief Get the type of the ModelNode
@@ -399,8 +419,38 @@ ModelNode_getObjectReference(ModelNode* self, char* objectReference);
  *
  * \return the type of the ModelNode (one of LD, LN, DO, DA)
  */
-ModelNodeType
+LIB61850_API ModelNodeType
 ModelNode_getType(ModelNode* self);
+
+/**
+ * \brief Get the name of the ModelNode
+ *
+ * \param self the ModelNode instance
+ *
+ * \return the name of the ModelNode
+ */
+LIB61850_API const char*
+ModelNode_getName(ModelNode* self);
+
+/**
+ * \brief Get the parent ModelNode of this ModelNode instance
+ *
+ * \param self the ModelNode instance
+ *
+ * \return the parent instance, or NULL when the ModelNode has no parent
+ */
+LIB61850_API ModelNode*
+ModelNode_getParent(ModelNode* self);
+
+/**
+ * \brief Get the list of direct child nodes
+ *
+ * \param self the ModelNode instance
+ *
+ * \return the list of private child nodes, or NULL when the node has no children
+ */
+LIB61850_API LinkedList
+ModelNode_getChildren(ModelNode* self);
 
 /**
  * \brief Set the name of the IED
@@ -411,7 +461,7 @@ ModelNode_getType(ModelNode* self);
  * \param model the IedModel instance
  * \param the name of the configured IED
  */
-void
+LIB61850_API void
 IedModel_setIedName(IedModel* self, const char* iedName);
 
 /**
@@ -426,10 +476,10 @@ IedModel_setIedName(IedModel* self, const char* iedName);
  *
  * \return the model node instance or NULL if model node does not exist.
  */
-ModelNode*
+LIB61850_API ModelNode*
 IedModel_getModelNodeByObjectReference(IedModel* self, const char* objectReference);
 
-SVControlBlock*
+LIB61850_API SVControlBlock*
 IedModel_getSVControlBlock(IedModel* self, LogicalNode* parentLN, const char* svcbName);
 
 /**
@@ -444,7 +494,7 @@ IedModel_getSVControlBlock(IedModel* self, LogicalNode* parentLN, const char* sv
  *
  * \return the model node instance or NULL if model node does not exist.
  */
-ModelNode*
+LIB61850_API ModelNode*
 IedModel_getModelNodeByShortObjectReference(IedModel* self, const char* objectReference);
 
 /**
@@ -458,7 +508,7 @@ IedModel_getModelNodeByShortObjectReference(IedModel* self, const char* objectRe
  *
  * \return the model node instance or NULL if model node does not exist.
  */
-ModelNode*
+LIB61850_API ModelNode*
 IedModel_getModelNodeByShortAddress(IedModel* self, uint32_t shortAddress);
 
 /**
@@ -469,7 +519,7 @@ IedModel_getModelNodeByShortAddress(IedModel* self, uint32_t shortAddress);
  *
  * \return The matching LogicalDevice instance
  */
-LogicalDevice*
+LIB61850_API LogicalDevice*
 IedModel_getDeviceByInst(IedModel* self, const char* ldInst);
 
 /**
@@ -480,7 +530,7 @@ IedModel_getDeviceByInst(IedModel* self, const char* ldInst);
  *
  * \return the corresponding LogicalDevice* object or NULL if the index is out of range
  */
-LogicalDevice*
+LIB61850_API LogicalDevice*
 IedModel_getDeviceByIndex(IedModel* self, int index);
 
 
@@ -492,7 +542,7 @@ IedModel_getDeviceByIndex(IedModel* self, int index);
  *
  * \return the logical device instance or NULL if it does not exist
  */
-LogicalNode*
+LIB61850_API LogicalNode*
 LogicalDevice_getLogicalNode(LogicalDevice* self, const char* lnName);
 
 /**
@@ -502,7 +552,7 @@ LogicalDevice_getLogicalNode(LogicalDevice* self, const char* lnName);
  *
  * \return the SGCB instance or NULL if no SGCB is available
  */
-SettingGroupControlBlock*
+LIB61850_API SettingGroupControlBlock*
 LogicalDevice_getSettingGroupControlBlock(LogicalDevice* self);
 
 /**@}*/
@@ -515,7 +565,7 @@ LogicalDevice_getSettingGroupControlBlock(LogicalDevice* self);
  *
  * \param self the IedModel instance that holds the model node
  */
-void
+LIB61850_API void
 IedModel_setAttributeValuesToNull(IedModel* self);
 
 /**
@@ -526,7 +576,7 @@ IedModel_setAttributeValuesToNull(IedModel* self);
  *
  * \return The matching LogicalDevice instance
  */
-LogicalDevice*
+LIB61850_API LogicalDevice*
 IedModel_getDevice(IedModel* self, const char* ldName);
 
 /**
@@ -537,7 +587,7 @@ IedModel_getDevice(IedModel* self, const char* ldName);
  *
  * \return The matching DataSet instance
  */
-DataSet*
+LIB61850_API DataSet*
 IedModel_lookupDataSet(IedModel* self, const char* dataSetReference);
 
 /**
@@ -548,7 +598,7 @@ IedModel_lookupDataSet(IedModel* self, const char* dataSetReference);
  *
  * \return the matching DataAttribute instance
  */
-DataAttribute*
+LIB61850_API DataAttribute*
 IedModel_lookupDataAttributeByMmsValue(IedModel* self, MmsValue* value);
 
 
@@ -559,22 +609,22 @@ IedModel_lookupDataAttributeByMmsValue(IedModel* self, MmsValue* value);
  *
  * \return the number of logical devices
  */
-int
+LIB61850_API int
 IedModel_getLogicalDeviceCount(IedModel* self);
 
-int
+LIB61850_API int
 LogicalDevice_getLogicalNodeCount(LogicalDevice* self);
 
-ModelNode*
+LIB61850_API ModelNode*
 LogicalDevice_getChildByMmsVariableName(LogicalDevice* self, const char* mmsVariableName);
 
-bool
+LIB61850_API bool
 LogicalNode_hasFCData(LogicalNode* self, FunctionalConstraint fc);
 
-bool
+LIB61850_API bool
 LogicalNode_hasBufferedReports(LogicalNode* self);
 
-bool
+LIB61850_API bool
 LogicalNode_hasUnbufferedReports(LogicalNode* self);
 
 /**
@@ -585,10 +635,10 @@ LogicalNode_hasUnbufferedReports(LogicalNode* self);
  *
  * \return the data set instance or NULL if the data set does not exist
  */
-DataSet*
+LIB61850_API DataSet*
 LogicalNode_getDataSet(LogicalNode* self, const char* dataSetName);
 
-bool
+LIB61850_API bool
 DataObject_hasFCData(DataObject* self, FunctionalConstraint fc);
 
 

@@ -1,14 +1,12 @@
 using System;
-using System.Collections.Generic;
 using System.Threading;
 
 using IEC61850.Client;
 using IEC61850.Common;
-using System.Runtime.Remoting.Metadata.W3cXsd2001;
 
 namespace reporting
 {
-	class ReportingExample
+    class ReportingExample
 	{
 
 		private static void reportHandler (Report report, object parameter)
@@ -25,9 +23,7 @@ namespace reporting
 			byte[] entryId = report.GetEntryId ();
 
 			if (entryId != null) {
-				SoapHexBinary shb = new SoapHexBinary(entryId);
-
-				Console.WriteLine ("  entryID: " + shb.ToString ());
+                Console.WriteLine ("  entryID: " + BitConverter.ToString(entryId));
 			}
 
 			if (report.HasDataSetName ()) {
@@ -108,12 +104,16 @@ namespace reporting
 
                 rcb2.SetRCBValues();
 
+                rcb2.GetRCBValues();
+
+                Console.WriteLine("RCB: " + rcbReference2 + " Owner: " + BitConverter.ToString(rcb2.GetOwner()));
+
 				rcb3.GetRCBValues();
 
 				if (rcb3.IsBuffered())
 					Console.WriteLine ("RCB: " + rcbReference3 + " is buffered");
 
-				rcb3.InstallReportHandler(reportHandler, rcb2);
+				rcb3.InstallReportHandler(reportHandler, rcb3);
 
 				rcb3.SetOptFlds(ReportOptions.REASON_FOR_INCLUSION | ReportOptions.SEQ_NUM | ReportOptions.TIME_STAMP |
 				                ReportOptions.CONF_REV | ReportOptions.ENTRY_ID | ReportOptions.DATA_REFERENCE | ReportOptions.DATA_SET);

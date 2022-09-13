@@ -1,7 +1,7 @@
 /*
  *  mms_server.h
  *
- *  Copyright 2013, 2014 Michael Zillgith
+ *  Copyright 2013-2018 Michael Zillgith
  *
  *  This file is part of libIEC61850.
  *
@@ -32,12 +32,13 @@
 extern "C" {
 #endif
 
-#include "mms_device_model.h"
 #include "mms_value.h"
-#include "iso_server.h"
+#include "iso_connection_parameters.h"
 
 typedef enum {
-	MMS_SERVER_NEW_CONNECTION, MMS_SERVER_CONNECTION_CLOSED
+	MMS_SERVER_NEW_CONNECTION,
+	MMS_SERVER_CONNECTION_CLOSED,
+	MMS_SERVER_CONNECTION_TICK
 } MmsServerEvent;
 
 typedef struct sMmsServer* MmsServer;
@@ -50,60 +51,11 @@ typedef enum {
     MMS_VMD_SPECIFIC
 } MmsVariableListType;
 
-typedef MmsValue* (*MmsReadVariableHandler)(void* parameter, MmsDomain* domain,
-		char* variableId, MmsServerConnection connection);
-
-typedef MmsDataAccessError (*MmsReadAccessHandler) (void* parameter, MmsDomain* domain,
-        char* variableId, MmsServerConnection connection);
-
-typedef MmsDataAccessError (*MmsWriteVariableHandler)(void* parameter,
-		MmsDomain* domain, char* variableId, MmsValue* value,
-		MmsServerConnection connection);
-
-typedef void (*MmsConnectionHandler)(void* parameter,
-		MmsServerConnection connection, MmsServerEvent event);
-
-MmsServer
-MmsServer_create(MmsDevice* device, TLSConfiguration tlsConfiguration);
-
-void
-MmsServer_destroy(MmsServer self);
-
-void
-MmsServer_installReadHandler(MmsServer self, MmsReadVariableHandler,
-		void* parameter);
-
-void
-MmsServer_installReadAccessHandler(MmsServer self, MmsReadAccessHandler, void* parameter);
-
-void
-MmsServer_installWriteHandler(MmsServer self, MmsWriteVariableHandler,
-		void* parameter);
-
-void
+LIB61850_INTERNAL void
 MmsServer_setLocalIpAddress(MmsServer self, const char* localIpAddress);
 
-bool
+LIB61850_INTERNAL bool
 MmsServer_isRunning(MmsServer self);
-
-/**
- * A connection handler will be invoked whenever a new client connection is opened or closed
- */
-void
-MmsServer_installConnectionHandler(MmsServer self, MmsConnectionHandler,
-		void* parameter);
-
-void
-MmsServer_setClientAuthenticator(MmsServer self, AcseAuthenticator authenticator, void* authenticatorParameter);
-
-MmsDevice*
-MmsServer_getDevice(MmsServer self);
-
-MmsValue*
-MmsServer_getValueFromCache(MmsServer self, MmsDomain* domain, const char* itemId);
-
-bool
-MmsServer_isLocked(MmsServer self);
 
 /**
  * \brief callback handler that is called whenever a named variable list changes
@@ -127,7 +79,7 @@ typedef MmsError (*MmsNamedVariableListChangedHandler)(void* parameter, bool cre
  * \param handler the callback handler function
  * \param parameter user provided parameter that is passed to the callback handler
  */
-void
+LIB61850_INTERNAL void
 MmsServer_installVariableListChangedHandler(MmsServer self, MmsNamedVariableListChangedHandler handler, void* parameter);
 
 /**
@@ -152,7 +104,7 @@ typedef bool (*MmsObtainFileHandler)(void* parameter, MmsServerConnection connec
  * \param handler the callback handler function
  * \param parameter user provided parameter that is passed to the callback handler
  */
-void
+LIB61850_INTERNAL void
 MmsServer_installObtainFileHandler(MmsServer self, MmsObtainFileHandler handler, void* parameter);
 
 /**
@@ -174,7 +126,7 @@ typedef void (*MmsGetFileCompleteHandler)(void* parameter, MmsServerConnection c
  * \param handler the callback handler function
  * \param parameter user provided parameter that is passed to the callback handler
  */
-void
+LIB61850_INTERNAL void
 MmsServer_installGetFileCompleteHandler(MmsServer self, MmsGetFileCompleteHandler handler, void* parameter);
 
 
@@ -209,7 +161,7 @@ typedef MmsError (*MmsFileAccessHandler) (void* parameter, MmsServerConnection c
  * \param handler the callback handler function
  * \param parameter user provided parameter that is passed to the callback handler
  */
-void
+LIB61850_API void
 MmsServer_installFileAccessHandler(MmsServer self, MmsFileAccessHandler handler, void* parameter);
 
 /**
@@ -222,106 +174,79 @@ MmsServer_installFileAccessHandler(MmsServer self, MmsFileAccessHandler handler,
  * \param self the MmsServer instance
  * \param basepath the new virtual filestore basepath
  */
-void
+LIB61850_INTERNAL void
 MmsServer_setFilestoreBasepath(MmsServer self, const char* basepath);
 
 /**
- * \brief lock the cached server data model
+ * \brief Set the maximum number of TCP client connections
  *
- * NOTE: This method should never be called inside of a library callback function. In the context of
- * a library callback the data model is always already locked! Calling this function inside of a
- * library callback may lead to a deadlock condition.
- *
- * \param self the MmsServer instance to operate on
+ * \param[in] maxConnections the maximum number of TCP client connections to accept
  */
-void
-MmsServer_lockModel(MmsServer self);
+LIB61850_INTERNAL void
+MmsServer_setMaxConnections(MmsServer self, int maxConnections);
 
 /**
- * \brief unlock the cached server data model
+ * \brief Enable/disable MMS file services at runtime
  *
- * NOTE: This method should never be called inside of a library callback function. In the context of
- * a library callback the data model is always already locked!
+ * NOTE: requires CONFIG_MMS_SERVER_CONFIG_SERVICES_AT_RUNTIME = 1 in stack configuration
  *
- * \param self the MmsServer instance to operate on
+ * \param[in] self the MmsServer instance
+ * \param[in] enable true to enable file services, false to disable
  */
-void
-MmsServer_unlockModel(MmsServer self);
-
-void
-MmsServer_insertIntoCache(MmsServer self, MmsDomain* domain, char* itemId,
-		MmsValue* value);
-
-/***************************************************
- * Functions for multi-threaded operation mode
- ***************************************************/
+LIB61850_INTERNAL void
+MmsServer_enableFileService(MmsServer self, bool enable);
 
 /**
- * \brief Start a new server thread and listen for incoming connections
+ * \brief Enable/disable dynamic named variable list (data set) service
  *
- * \param self the MmsServer instance to operate on
- * \param tcpPort the TCP port the server is listening on.
+ * NOTE: requires CONFIG_MMS_SERVER_CONFIG_SERVICES_AT_RUNTIME = 1 in stack configuration
+ *
+ * \param[in] self the MmsServer instance
+ * \param[in] enable true to enable named variable list services, false to disable
  */
-void
-MmsServer_startListening(MmsServer self, int tcpPort);
+LIB61850_INTERNAL void
+MmsServer_enableDynamicNamedVariableListService(MmsServer self, bool enable);
 
 /**
- * \brief Stop server thread an all open connection threads
+ * \brief Set the maximum number of association specific data sets (per connection)
  *
- * \param self the MmsServer instance to operate on
+ * \param[in] self the MmsServer instance
+ * \param[in] maxDataSets maximum number association specific data sets
  */
-void
-MmsServer_stopListening(MmsServer self);
-
-/***************************************************
- * Functions for threadless operation mode
- ***************************************************/
+LIB61850_INTERNAL void
+MmsServer_setMaxAssociationSpecificDataSets(MmsServer self, int maxDataSets);
 
 /**
- * \brief Start a new server in non-threaded operation mode
+ * \brief Set the maximum number of domain specific data sets
  *
- * \param self the MmsServer instance to operate on
- * \param tcpPort the TCP port the server is listening on.
+ * \param[in] self the MmsServer instance
+ * \param[in] maxDataSets maximum number domain specific data sets
  */
-void
-MmsServer_startListeningThreadless(MmsServer self, int tcpPort);
+LIB61850_INTERNAL void
+MmsServer_setMaxDomainSpecificDataSets(MmsServer self, int maxDataSets);
 
 /**
- * \brief Wait for the server to come ready in non-threaded operation mode
+ * \brief Set the maximum number of data set entries (for dynamic data sets)
  *
- * \param self the MmsServer instance to operate on
- * \param timeoutMs maximum number of milliseconds to wait
- * \return 1 if the server is ready, 0 if not or -1 on error
+ * \param[in] self the MmsServer instance
+ * \param[in] maxDataSetEntries maximum number of dynamic data set entries
  */
-int
-MmsServer_waitReady(MmsServer self, unsigned int timeoutMs);
+LIB61850_INTERNAL void
+MmsServer_setMaxDataSetEntries(MmsServer self, int maxDataSetEntries);
 
 /**
- * \brief Handle client connections (for non-threaded operation mode)
+ * \brief Enable/disable journal service
  *
- * This function is listening for new client connections and handles incoming
- * requests for existing client connections.
+ * NOTE: requires CONFIG_MMS_SERVER_CONFIG_SERVICES_AT_RUNTIME = 1 in stack configuration
  *
- * \param self the MmsServer instance to operate on
+ * \param[in] self the MmsServer instance
+ * \param[in] enable true to enable journal service, false to disable
  */
-void
-MmsServer_handleIncomingMessages(MmsServer self);
+LIB61850_INTERNAL void
+MmsServer_enableJournalService(MmsServer self, bool enable);
 
-/**
- * \brief Handle MmsServer background task
- *
- * \param self the MmsServer instance to operate on
- */
-void
-MmsServer_handleBackgroundTasks(MmsServer self);
 
-/**
- * \brief Stop the server (for non-threaded operation mode)
- *
- * \param self the MmsServer instance to operate on
- */
-void
-MmsServer_stopListeningThreadless(MmsServer self);
+
 
 
 /***************************************************
@@ -339,7 +264,7 @@ MmsServer_stopListeningThreadless(MmsServer self);
  * \param modelName the model name attribute of the VMD
  * \param revision the revision attribute of the VMD
  */
-void
+LIB61850_INTERNAL void
 MmsServer_setServerIdentity(MmsServer self, char* vendorName, char* modelName, char* revision);
 
 /**
@@ -348,7 +273,7 @@ MmsServer_setServerIdentity(MmsServer self, char* vendorName, char* modelName, c
  * \param self the MmsServer instance to operate on
  * \return the vendor name attribute of the VMD as C string
  */
-char*
+LIB61850_INTERNAL char*
 MmsServer_getVendorName(MmsServer self);
 
 /**
@@ -357,7 +282,7 @@ MmsServer_getVendorName(MmsServer self);
  * \param self the MmsServer instance to operate on
  * \return the model name attribute of the VMD as C string
  */
-char*
+LIB61850_INTERNAL char*
 MmsServer_getModelName(MmsServer self);
 
 /**
@@ -366,7 +291,7 @@ MmsServer_getModelName(MmsServer self);
  * \param self the MmsServer instance to operate on
  * \return the revision attribute of the VMD as C string
  */
-char*
+LIB61850_INTERNAL char*
 MmsServer_getRevision(MmsServer self);
 
 /***************************************************
@@ -403,7 +328,7 @@ typedef void (*MmsStatusRequestListener)(void* parameter, MmsServer mmsServer, M
  * \param vmdLogicalStatus the logical status attribute of the VMD
  * \param vmdPhysicalStatus the physical status attribute of the VMD
  */
-void
+LIB61850_INTERNAL void
 MmsServer_setVMDStatus(MmsServer self, int vmdLogicalStatus, int vmdPhysicalStatus);
 
 /**
@@ -411,7 +336,7 @@ MmsServer_setVMDStatus(MmsServer self, int vmdLogicalStatus, int vmdPhysicalStat
  *
  * \param self the MmsServer instance to operate on
  */
-int
+LIB61850_INTERNAL int
 MmsServer_getVMDLogicalStatus(MmsServer self);
 
 /**
@@ -419,7 +344,7 @@ MmsServer_getVMDLogicalStatus(MmsServer self);
  *
  * \param self the MmsServer instance to operate on
  */
-int
+LIB61850_INTERNAL int
 MmsServer_getVMDPhysicalStatus(MmsServer self);
 
 /**
@@ -433,15 +358,17 @@ MmsServer_getVMDPhysicalStatus(MmsServer self);
  * \param listener the listener that is called when a MMS status request is received
  * \param parameter a user provided parameter that is handed over to the listener
  */
-void
+LIB61850_INTERNAL void
 MmsServer_setStatusRequestListener(MmsServer self, MmsStatusRequestListener listener, void* parameter);
 
-char*
+LIB61850_INTERNAL char*
 MmsServerConnection_getClientAddress(MmsServerConnection self);
 
-IsoConnection
-MmsServerConnection_getIsoConnection(MmsServerConnection self);
+LIB61850_INTERNAL char*
+MmsServerConnection_getLocalAddress(MmsServerConnection self);
 
+LIB61850_INTERNAL void*
+MmsServerConnection_getSecurityToken(MmsServerConnection self);
 
 /**@}*/
 

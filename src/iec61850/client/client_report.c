@@ -3,7 +3,7 @@
  *
  *  Client implementation for IEC 61850 reporting.
  *
- *  Copyright 2013, 2014 Michael Zillgith
+ *  Copyright 2013-2022 Michael Zillgith
  *
  *  This file is part of libIEC61850.
  *
@@ -31,8 +31,6 @@
 
 #include "libiec61850_platform_includes.h"
 
-#include <inttypes.h>
-
 struct sClientReport
 {
     ReportCallbackFunction callback;
@@ -42,6 +40,8 @@ struct sClientReport
 
     char* dataSetName;
     int dataSetNameSize; /* size of the dataSetName buffer */
+
+    int dataSetSize;
 
     MmsValue* entryId;
     MmsValue* dataReferences;
@@ -56,11 +56,15 @@ struct sClientReport
     bool hasConfRev;
     bool hasTimestamp;
     bool hasBufOverflow;
+    bool hasSubSequenceNumber;
 
     uint64_t timestamp;
     uint16_t seqNum;
     uint32_t confRev;
     bool bufOverflow;
+
+    uint16_t subSeqNum;
+    bool moreSegementsFollow;
 };
 
 char*
@@ -88,6 +92,8 @@ ClientReport
 ClientReport_create()
 {
     ClientReport self = (ClientReport) GLOBAL_CALLOC(1, sizeof(struct sClientReport));
+
+    self->dataSetSize = -1;
 
     return self;
 }
@@ -242,6 +248,24 @@ ClientReport_getDataSetValues(ClientReport self)
     return self->dataSetValues;
 }
 
+bool
+ClientReport_hasSubSeqNum(ClientReport self)
+{
+    return self->hasSubSequenceNumber;
+}
+
+uint16_t
+ClientReport_getSubSeqNum(ClientReport self)
+{
+    return self->subSeqNum;
+}
+
+bool
+ClientReport_getMoreSeqmentsFollow(ClientReport self)
+{
+    return self->moreSegementsFollow;
+}
+
 static ClientReport
 lookupReportHandler(IedConnection self, const char* rcbReference)
 {
@@ -309,17 +333,15 @@ void
 IedConnection_triggerGIReport(IedConnection self, IedClientError* error, const char* rcbReference)
 {
     char domainId[65];
-    char itemId[129];
+    char itemId[65];
 
     MmsMapping_getMmsDomainFromObjectReference(rcbReference, domainId);
 
-    strcpy(itemId, rcbReference + strlen(domainId) + 1);
+    StringUtils_concatString(itemId, 65, rcbReference + strlen(domainId) + 1, "");
 
     StringUtils_replace(itemId, '.', '$');
 
-    int itemIdLen = strlen(itemId);
-
-    strcpy(itemId + itemIdLen, "$GI");
+    StringUtils_appendString(itemId, 65, "$GI");
 
     MmsConnection mmsCon = IedConnection_getMmsConnection(self);
 
@@ -343,7 +365,7 @@ IedConnection_triggerGIReport(IedConnection self, IedClientError* error, const c
 }
 
 void
-private_IedConnection_handleReport(IedConnection self, MmsValue* value)
+iedConnection_handleReport(IedConnection self, MmsValue* value)
 {
     MmsValue* rptIdValue = MmsValue_getElement(value, 0);
 
@@ -359,12 +381,13 @@ private_IedConnection_handleReport(IedConnection self, MmsValue* value)
 
     while (element != NULL) {
         ClientReport report = (ClientReport) element->data;
-        char defaultRptId[129];
+        char defaultRptId[130];
         char* rptId = report->rptId;
 
-        if ((rptId == NULL)  || (rptId && (strlen(rptId) == 0))) {
-            strncpy(defaultRptId, report->rcbReference, 129);
+        if ((rptId == NULL) || (strlen(rptId) == 0)) {
+            StringUtils_concatString(defaultRptId, 130, report->rcbReference, "");
             StringUtils_replace(defaultRptId, '.', '$');
+
             rptId = defaultRptId;
         }
 
@@ -386,6 +409,7 @@ private_IedConnection_handleReport(IedConnection self, MmsValue* value)
     matchingReport->hasConfRev = false;
     matchingReport->hasDataSetName = false;
     matchingReport->hasBufOverflow = false;
+    matchingReport->hasSubSequenceNumber = false;
 
    if (DEBUG_IED_CLIENT)
         printf("IED_CLIENT: received report with ID %s\n", MmsValue_toString(rptIdValue));
@@ -435,7 +459,7 @@ private_IedConnection_handleReport(IedConnection self, MmsValue* value)
         matchingReport->timestamp = MmsValue_getBinaryTimeAsUtcMs(timeStampValue);
 
         if (DEBUG_IED_CLIENT)
-            printf("IED_CLIENT: report has timestamp %" PRIu64 "\n", matchingReport->timestamp);
+            printf("IED_CLIENT: report has timestamp %llu\n", (unsigned long long) matchingReport->timestamp);
 
         inclusionIndex++;
     }
@@ -453,22 +477,53 @@ private_IedConnection_handleReport(IedConnection self, MmsValue* value)
             goto exit_function;
         }
 
-        const char* dataSetNameStr = MmsValue_toString(dataSetName);
+        int dataSetNameSize = MmsValue_getStringSize(dataSetName);
 
-        if (matchingReport->dataSetName == NULL) {
-        	matchingReport->dataSetName = (char*) GLOBAL_MALLOC(MmsValue_getStringSize(dataSetName) + 1);
-        	matchingReport->dataSetNameSize = MmsValue_getStringSize(dataSetName) + 1;
+        /* limit to prevent large memory allocation */
+        if (dataSetNameSize < 130) {
+            const char* dataSetNameStr = MmsValue_toString(dataSetName);
+
+            if (matchingReport->dataSetName == NULL) {
+                matchingReport->dataSetName = (char*) GLOBAL_MALLOC(dataSetNameSize + 1);
+
+                if (matchingReport->dataSetName == NULL) {
+                    matchingReport->dataSetNameSize =  0;
+
+                    if (DEBUG_IED_CLIENT)
+                        printf("IED_CLIENT: failed to allocate memory\n");
+
+                    goto exit_function;
+                }
+
+                matchingReport->dataSetNameSize = dataSetNameSize + 1;
+            }
+            else {
+                if (matchingReport->dataSetNameSize < MmsValue_getStringSize(dataSetName) + 1) {
+                    GLOBAL_FREEMEM((void*) matchingReport->dataSetName);
+
+                    matchingReport->dataSetName = (char*) GLOBAL_MALLOC(dataSetNameSize + 1);
+
+                    if (matchingReport->dataSetName == NULL) {
+                        matchingReport->dataSetNameSize =  0;
+
+                        if (DEBUG_IED_CLIENT)
+                            printf("IED_CLIENT: failed to allocate memory\n");
+
+                        goto exit_function;
+                    }
+
+                    matchingReport->dataSetNameSize = dataSetNameSize + 1;
+                }
+            }
+
+            StringUtils_copyStringMax(matchingReport->dataSetName, dataSetNameSize + 1, dataSetNameStr);
         }
         else {
-        	if (matchingReport->dataSetNameSize < MmsValue_getStringSize(dataSetName) + 1) {
-        		GLOBAL_FREEMEM((void*) matchingReport->dataSetName);
+            if (DEBUG_IED_CLIENT)
+                printf("IED_CLIENT: report DatSet name too large (%i)\n", dataSetNameSize);
 
-        		matchingReport->dataSetName = (char*) GLOBAL_MALLOC(MmsValue_getStringSize(dataSetName) + 1);
-				matchingReport->dataSetNameSize = MmsValue_getStringSize(dataSetName) + 1;
-        	}
+            goto exit_function;
         }
-
-    	strcpy(matchingReport->dataSetName, dataSetNameStr);
 
         inclusionIndex++;
     }
@@ -535,10 +590,43 @@ private_IedConnection_handleReport(IedConnection self, MmsValue* value)
         inclusionIndex++;
     }
 
+    /* handle segmentation fields (check ReportedOptFlds.segmentation) */
+    if (MmsValue_getBitStringBit(optFlds, 9) == true) {
 
-    /* skip segmentation fields */
-    if (MmsValue_getBitStringBit(optFlds, 9) == true)
-        inclusionIndex += 2;
+        MmsValue* subSeqNum = MmsValue_getElement(value, inclusionIndex);
+        inclusionIndex++;
+
+        if ((subSeqNum == NULL) || (MmsValue_getType(subSeqNum) != MMS_UNSIGNED)) {
+            if (DEBUG_IED_CLIENT)
+                printf("IED_CLIENT: received malformed report (SubSeqNum)\n");
+
+            goto exit_function;
+        }
+        else {
+            matchingReport->subSeqNum = (uint16_t) MmsValue_toUint32(subSeqNum);
+        }
+
+        MmsValue* moreSegmentsFollow = MmsValue_getElement(value, inclusionIndex);
+        inclusionIndex++;
+
+        if ((moreSegmentsFollow == NULL) || (MmsValue_getType(moreSegmentsFollow) != MMS_BOOLEAN)) {
+            if ((subSeqNum == NULL) || (MmsValue_getType(subSeqNum) != MMS_UNSIGNED)) {
+                if (DEBUG_IED_CLIENT)
+                    printf("IED_CLIENT: received malformed report (MoreSegmentsFollow)\n");
+
+                goto exit_function;
+            }
+        }
+        else {
+            matchingReport->moreSegementsFollow = MmsValue_getBoolean(moreSegmentsFollow);
+        }
+
+        matchingReport->hasSequenceNumber = true;
+    }
+    else {
+        matchingReport->subSeqNum = 0;
+        matchingReport->moreSegementsFollow = false;
+    }
 
     MmsValue* inclusion = MmsValue_getElement(value, inclusionIndex);
 
@@ -550,6 +638,18 @@ private_IedConnection_handleReport(IedConnection self, MmsValue* value)
     }
 
     int dataSetSize = MmsValue_getBitStringSize(inclusion);
+
+    if (matchingReport->dataSetSize == -1) {
+        matchingReport->dataSetSize = dataSetSize;
+    }
+    else {
+        if (dataSetSize != matchingReport->dataSetSize) {
+            if (DEBUG_IED_CLIENT)
+                printf("IED_CLIENT: received malformed report (inclusion has no plausible size)\n");
+
+            goto exit_function;
+        }
+    }
 
     int includedElements = MmsValue_getNumberOfSetBits(inclusion);
 
@@ -614,8 +714,6 @@ private_IedConnection_handleReport(IedConnection self, MmsValue* value)
     if (hasReasonForInclusion)
         matchingReport->hasReasonForInclusion = true;
 
-    int reasonForInclusionIndex = valueIndex + includedElements;
-
     for (i = 0; i < dataSetSize; i++) {
         if (MmsValue_getBitStringBit(inclusion, i) == true) {
 
@@ -636,12 +734,10 @@ private_IedConnection_handleReport(IedConnection self, MmsValue* value)
                 MmsValue_update(dataSetElement, newElementValue);
 
             if (DEBUG_IED_CLIENT)
-                printf("IED_CLIENT:  update element value type: %i\n", MmsValue_getType(newElementValue));
-
-            valueIndex++;
+                printf("IED_CLIENT: update element value type: %i\n", MmsValue_getType(newElementValue));
 
             if (hasReasonForInclusion) {
-                MmsValue* reasonForInclusion = MmsValue_getElement(value, reasonForInclusionIndex);
+                MmsValue* reasonForInclusion = MmsValue_getElement(value, includedElements + valueIndex);
 
                 if ((reasonForInclusion == NULL) || (MmsValue_getType(reasonForInclusion) != MMS_BIT_STRING)) {
                     if (DEBUG_IED_CLIENT)
@@ -650,20 +746,24 @@ private_IedConnection_handleReport(IedConnection self, MmsValue* value)
                     goto exit_function;
                 }
 
+                matchingReport->reasonForInclusion[i] = IEC61850_REASON_NOT_INCLUDED;
+
                 if (MmsValue_getBitStringBit(reasonForInclusion, 1) == true)
-                    matchingReport->reasonForInclusion[i] = IEC61850_REASON_DATA_CHANGE;
-                else if (MmsValue_getBitStringBit(reasonForInclusion, 2) == true)
-                    matchingReport->reasonForInclusion[i] = IEC61850_REASON_QUALITY_CHANGE;
-                else if (MmsValue_getBitStringBit(reasonForInclusion, 3) == true)
-                    matchingReport->reasonForInclusion[i] = IEC61850_REASON_DATA_UPDATE;
-                else if (MmsValue_getBitStringBit(reasonForInclusion, 4) == true)
-                    matchingReport->reasonForInclusion[i] = IEC61850_REASON_INTEGRITY;
-                else if (MmsValue_getBitStringBit(reasonForInclusion, 5) == true)
-                    matchingReport->reasonForInclusion[i] = IEC61850_REASON_GI;
+                    matchingReport->reasonForInclusion[i] |= (ReasonForInclusion) IEC61850_REASON_DATA_CHANGE;
+                if (MmsValue_getBitStringBit(reasonForInclusion, 2) == true)
+                    matchingReport->reasonForInclusion[i] |= IEC61850_REASON_QUALITY_CHANGE;
+                if (MmsValue_getBitStringBit(reasonForInclusion, 3) == true)
+                    matchingReport->reasonForInclusion[i] |= IEC61850_REASON_DATA_UPDATE;
+                if (MmsValue_getBitStringBit(reasonForInclusion, 4) == true)
+                    matchingReport->reasonForInclusion[i] |= IEC61850_REASON_INTEGRITY;
+                if (MmsValue_getBitStringBit(reasonForInclusion, 5) == true)
+                    matchingReport->reasonForInclusion[i] |= IEC61850_REASON_GI;
             }
             else {
                 matchingReport->reasonForInclusion[i] = IEC61850_REASON_UNKNOWN;
             }
+
+            valueIndex++;
         }
         else {
             matchingReport->reasonForInclusion[i] = IEC61850_REASON_NOT_INCLUDED;

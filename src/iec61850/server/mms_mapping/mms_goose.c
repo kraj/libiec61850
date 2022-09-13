@@ -1,7 +1,7 @@
 /*
  *  mms_goose.c
  *
- *  Copyright 2013, 2014 Michael Zillgith
+ *  Copyright 2013-2021 Michael Zillgith
  *
  *  This file is part of libIEC61850.
  *
@@ -25,10 +25,11 @@
 
 #if (CONFIG_INCLUDE_GOOSE_SUPPORT == 1)
 
+#define GOOSE_MAX_MESSAGE_SIZE 1518
+
 #include "libiec61850_platform_includes.h"
 #include "mms_mapping.h"
 #include "linked_list.h"
-#include "array_list.h"
 
 #include "hal_thread.h"
 
@@ -37,10 +38,17 @@
 
 #include "mms_goose.h"
 #include "goose_publisher.h"
+#include "ied_server_private.h"
+
+#if defined(_MSC_VER) && _MSC_VER < 1900
+#define snprintf(buf,len, format,...) _snprintf_s(buf, len,len, format, __VA_ARGS__)
+#endif
 
 struct sMmsGooseControlBlock {
     char* name;
     bool goEna;
+    unsigned int isDynamicDataSet:1;
+    unsigned int useVlanTag:1;
 
     char* dstAddress;
 
@@ -51,7 +59,6 @@ struct sMmsGooseControlBlock {
     GoosePublisher publisher;
 
     DataSet* dataSet;
-    bool isDynamicDataSet;
 
     LinkedList dataSetValues;
     uint64_t nextPublishTime;
@@ -69,16 +76,197 @@ struct sMmsGooseControlBlock {
     char* goCBRef;
     char* goId;
     char* dataSetRef;
+
+    char* gooseInterfaceId;
+
+    bool stateChangePending;
 };
+
+static void
+setNdsCom(MmsGooseControlBlock mmsGCB, bool value)
+{
+    MmsValue* ndsComValue = MmsValue_getElement(mmsGCB->mmsValue, 4);
+
+    if (ndsComValue) {
+        MmsValue_setBoolean(ndsComValue, value);
+    }
+}
+
+static bool
+getNdsCom(MmsGooseControlBlock mmsGCB)
+{
+    bool ndsCom = true;
+
+    MmsValue* ndsComValue = MmsValue_getElement(mmsGCB->mmsValue, 4);
+
+    if (ndsComValue)
+        ndsCom = MmsValue_getBoolean(ndsComValue);
+
+    return ndsCom;
+}
+
+bool
+MmsGooseControlBlock_getNdsCom(MmsGooseControlBlock self)
+{
+    return getNdsCom(self);
+}
+
+bool
+MmsGooseControlBlock_getGoEna(MmsGooseControlBlock self)
+{
+    bool retVal = false;
+
+    if (self->mmsValue) {
+        MmsValue* goEnaValue = MmsValue_getElement(self->mmsValue, 0);
+
+        if (goEnaValue) {
+            retVal = MmsValue_getBoolean(goEnaValue);
+        }
+    }
+
+    return retVal;
+}
+
+
+int
+MmsGooseControlBlock_getMinTime(MmsGooseControlBlock self)
+{
+    int retVal = -1;
+
+    if (self->mmsValue) {
+        MmsValue* minTimeValue = MmsValue_getElement(self->mmsValue, 6);
+
+        if (minTimeValue) {
+            retVal = MmsValue_toInt32(minTimeValue);
+        }
+    }
+
+    return retVal;
+}
+
+int
+MmsGooseControlBlock_getMaxTime(MmsGooseControlBlock self)
+{
+    int retVal = -1;
+
+    if (self->mmsValue) {
+        MmsValue* maxTimeValue = MmsValue_getElement(self->mmsValue, 7);
+
+        if (maxTimeValue) {
+            retVal = MmsValue_toInt32(maxTimeValue);
+        }
+    }
+
+    return retVal;
+}
+
+bool
+MmsGooseControlBlock_getFixedOffs(MmsGooseControlBlock self)
+{
+    bool retVal = false;
+
+    if (self->mmsValue) {
+        MmsValue* fixedOffsValue = MmsValue_getElement(self->mmsValue, 8);
+
+        if (fixedOffsValue) {
+            retVal = MmsValue_getBoolean(fixedOffsValue);
+        }
+    }
+
+    return retVal;
+}
+
+#if (CONFIG_IEC61850_SERVICE_TRACKING == 1)
+
+static void
+copyGCBValuesToTrackingObject(MmsGooseControlBlock gc)
+{
+    if (gc->mmsMapping->gocbTrk) {
+        GocbTrkInstance trkInst = gc->mmsMapping->gocbTrk;
+
+        if (trkInst->goEna)
+            MmsValue_setBoolean(trkInst->goEna->mmsValue, MmsGooseControlBlock_isEnabled(gc));
+
+        if (trkInst->goID)
+            MmsValue_setVisibleString(trkInst->goID->mmsValue, gc->goId);
+
+        if (trkInst->datSet)
+        {
+            char datSet[130];
+            LogicalNode* ln = (LogicalNode*) gc->logicalNode;
+            LogicalDevice* ld = (LogicalDevice*) ln->parent;
+            char* iedName = gc->mmsMapping->mmsDevice->deviceName;
+            snprintf(datSet, 129, "%s%s/%s", iedName, ld->name, gc->dataSet->name);
+            datSet[129] = 0;
+            StringUtils_replace(datSet, '$', '.');
+            MmsValue_setVisibleString(trkInst->datSet->mmsValue, datSet);
+        }
+
+        if (trkInst->confRev) {
+            uint32_t confRev = MmsValue_toUint32(MmsValue_getElement(gc->mmsValue, 3));
+            MmsValue_setUint32(trkInst->confRev->mmsValue, confRev);
+        }
+        if (trkInst->ndsCom) {
+            bool ndsCom = MmsValue_getBoolean(MmsValue_getElement(gc->mmsValue, 4));
+            MmsValue_setBoolean(trkInst->ndsCom->mmsValue, ndsCom);
+        }
+
+        if (trkInst->dstAddress) {
+          MmsValue_update(trkInst->dstAddress->mmsValue, MmsValue_getElement(gc->mmsValue, 5));
+        }
+    }
+}
+
+static void
+updateGenericTrackingObjectValues(MmsGooseControlBlock gc, IEC61850_ServiceType serviceType, MmsDataAccessError errVal)
+{
+    ServiceTrkInstance trkInst = NULL;
+
+    if (gc->mmsMapping->gocbTrk) {
+        trkInst = (ServiceTrkInstance) gc->mmsMapping->gocbTrk;
+    }
+
+    if (trkInst) {
+        if (trkInst->serviceType)
+            MmsValue_setInt32(trkInst->serviceType->mmsValue, (int) serviceType);
+
+        if (trkInst->t)
+            MmsValue_setUtcTimeMs(trkInst->t->mmsValue, Hal_getTimeInMs());
+
+        if (trkInst->errorCode)
+            MmsValue_setInt32(trkInst->errorCode->mmsValue,
+                    private_IedServer_convertMmsDataAccessErrorToServiceError(errVal));
+
+        char objRef[130];
+
+        /* create object reference */
+        LogicalNode* ln = (LogicalNode*) gc->logicalNode;
+        LogicalDevice* ld = (LogicalDevice*) ln->parent;
+
+        char* iedName = gc->mmsMapping->iedServer->mmsDevice->deviceName;
+
+        snprintf(objRef, 129, "%s%s/%s.%s", iedName, ld->name, gc->logicalNode->name, gc->name);
+        objRef[129] = 0;
+
+        if (trkInst->objRef) {
+            IedServer_updateVisibleStringAttributeValue(gc->mmsMapping->iedServer, trkInst->objRef, objRef);
+        }
+    }
+}
+
+#endif /* (CONFIG_IEC61850_SERVICE_TRACKING == 1) */
 
 MmsGooseControlBlock
 MmsGooseControlBlock_create()
 {
 	MmsGooseControlBlock self = (MmsGooseControlBlock) GLOBAL_CALLOC(1, sizeof(struct sMmsGooseControlBlock));
 
+	if (self) {
+	    self->useVlanTag = true;
 #if (CONFIG_MMS_THREADLESS_STACK != 1)
-    self->publisherMutex = Semaphore_create(1);
+	    self->publisherMutex = Semaphore_create(1);
 #endif
+	}
 
     return self;
 }
@@ -86,36 +274,57 @@ MmsGooseControlBlock_create()
 void
 MmsGooseControlBlock_destroy(MmsGooseControlBlock self)
 {
+    if (self) {
+
 #if (CONFIG_MMS_THREADLESS_STACK != 1)
-    Semaphore_destroy(self->publisherMutex);
+        Semaphore_destroy(self->publisherMutex);
 #endif
 
     if (self->publisher != NULL)
-        GoosePublisher_destroy(self->publisher);
+            GoosePublisher_destroy(self->publisher);
 
-    if (self->dataSetValues != NULL)
-        LinkedList_destroyStatic(self->dataSetValues);
+        if (self->dataSetValues != NULL)
+            LinkedList_destroyStatic(self->dataSetValues);
 
-    if (self->goCBRef != NULL)
-        GLOBAL_FREEMEM(self->goCBRef);
+        if (self->goCBRef != NULL)
+            GLOBAL_FREEMEM(self->goCBRef);
 
-    if (self->goId != NULL)
-        GLOBAL_FREEMEM(self->goId);
+        if (self->goId != NULL)
+            GLOBAL_FREEMEM(self->goId);
 
-    if (self->dataSetRef != NULL)
-        GLOBAL_FREEMEM(self->dataSetRef);
+        if (self->dataSetRef != NULL)
+            GLOBAL_FREEMEM(self->dataSetRef);
 
-    if (self->dataSet != NULL) {
-        if (self->isDynamicDataSet) {
-            MmsMapping_freeDynamicallyCreatedDataSet(self->dataSet);
-            self->isDynamicDataSet = false;
-            self->dataSet = NULL;
+        if (self->dataSet != NULL) {
+            if (self->isDynamicDataSet) {
+                MmsMapping_freeDynamicallyCreatedDataSet(self->dataSet);
+                self->isDynamicDataSet = false;
+                self->dataSet = NULL;
+            }
         }
+
+        if (self->gooseInterfaceId != NULL)
+            GLOBAL_FREEMEM(self->gooseInterfaceId);
+
+        MmsValue_delete(self->mmsValue);
+
+        GLOBAL_FREEMEM(self);
     }
+}
 
-    MmsValue_delete(self->mmsValue);
+void
+MmsGooseControlBlock_useGooseVlanTag(MmsGooseControlBlock self, bool useVlanTag)
+{
+    self->useVlanTag = useVlanTag;
+}
 
-    GLOBAL_FREEMEM(self);
+void
+MmsGooseControlBlock_setGooseInterfaceId(MmsGooseControlBlock self, const char* interfaceId)
+{
+    if (self->gooseInterfaceId != NULL)
+        GLOBAL_FREEMEM(self->gooseInterfaceId);
+
+    self->gooseInterfaceId = StringUtils_copyString(interfaceId);
 }
 
 MmsDomain*
@@ -128,6 +337,12 @@ DataSet*
 MmsGooseControlBlock_getDataSet(MmsGooseControlBlock self)
 {
     return self->dataSet;
+}
+
+LogicalNode*
+MmsGooseControlBlock_getLogicalNode(MmsGooseControlBlock self)
+{
+    return self->logicalNode;
 }
 
 char*
@@ -160,9 +375,27 @@ MmsGooseControlBlock_isEnabled(MmsGooseControlBlock self)
     return self->goEna;
 }
 
-void
-MmsGooseControlBlock_enable(MmsGooseControlBlock self)
+static int
+calculateMaxDataSetSize(DataSet* dataSet)
 {
+    int dataSetSize = 0;
+
+    DataSetEntry* dataSetEntry = dataSet->fcdas;
+
+    while (dataSetEntry) {
+        dataSetSize +=  MmsValue_getMaxEncodedSize(dataSetEntry->value);
+
+        dataSetEntry = dataSetEntry->sibling;
+    }
+
+    return dataSetSize;
+}
+
+bool
+MmsGooseControlBlock_enable(MmsGooseControlBlock self, MmsMapping* mmsMapping)
+{
+    bool retVal = false;
+
 #if (CONFIG_MMS_THREADLESS_STACK != 1)
     Semaphore_wait(self->publisherMutex);
 #endif
@@ -207,66 +440,116 @@ MmsGooseControlBlock_enable(MmsGooseControlBlock self)
 
         if (self->dataSet != NULL) {
 
-            MmsValue* goEna = MmsValue_getElement(self->mmsValue, 0);
+            int dataSetSize = calculateMaxDataSetSize(self->dataSet);
 
-            MmsValue_setBoolean(goEna, true);
+            /*  Calculate maximum GOOSE message size */
+            int maxGooseMessageSize =  26 + 51 + 6;
+            maxGooseMessageSize += (int)strlen(self->goCBRef);
 
+            if (self->goId)
+                maxGooseMessageSize += (int)strlen(self->goId);
+            else
+                maxGooseMessageSize += (int)strlen(self->goCBRef);
 
-            MmsValue* dstAddress = MmsValue_getElement(self->mmsValue, 5);
+            maxGooseMessageSize += (int)strlen(self->dataSetRef);
 
-            CommParameters commParameters;
-            commParameters.appId = MmsValue_toInt32(MmsValue_getElement(dstAddress, 3));
-            commParameters.vlanId = MmsValue_toInt32(MmsValue_getElement(dstAddress, 2));
-            commParameters.vlanPriority = MmsValue_toInt32(MmsValue_getElement(dstAddress, 1));
+            maxGooseMessageSize += dataSetSize;
 
-            MmsValue* macAddress = MmsValue_getElement(dstAddress, 0);
+            if (maxGooseMessageSize > GOOSE_MAX_MESSAGE_SIZE) {
+                setNdsCom(self, true);
 
-            memcpy(commParameters.dstAddress, MmsValue_getOctetStringBuffer(macAddress), 6);
+#if (CONFIG_IEC61850_SERVICE_TRACKING == 1)
+                copyGCBValuesToTrackingObject(self);
+                updateGenericTrackingObjectValues(self, IEC61850_SERVICE_TYPE_SET_GOCB_VALUES, DATA_ACCESS_ERROR_OBJECT_VALUE_INVALID);
+#endif /* (CONFIG_IEC61850_SERVICE_TRACKING == 1) */
+            }
+            else {
+                MmsValue* goEna = MmsValue_getElement(self->mmsValue, 0);
 
-            self->publisher = GoosePublisher_create(&commParameters, self->mmsMapping->gooseInterfaceId);
+                MmsValue_setBoolean(goEna, true);
 
-            self->minTime = MmsValue_toUint32(MmsValue_getElement(self->mmsValue, 6));
-            self->maxTime = MmsValue_toUint32(MmsValue_getElement(self->mmsValue, 7));
+                MmsValue* dstAddress = MmsValue_getElement(self->mmsValue, 5);
 
-            GoosePublisher_setTimeAllowedToLive(self->publisher, self->maxTime * 3);
+                CommParameters commParameters;
+                commParameters.appId = MmsValue_toInt32(MmsValue_getElement(dstAddress, 3));
+                commParameters.vlanId = MmsValue_toInt32(MmsValue_getElement(dstAddress, 2));
+                commParameters.vlanPriority = MmsValue_toInt32(MmsValue_getElement(dstAddress, 1));
 
-            GoosePublisher_setDataSetRef(self->publisher, self->dataSetRef);
+                MmsValue* macAddress = MmsValue_getElement(dstAddress, 0);
 
-            GoosePublisher_setGoCbRef(self->publisher, self->goCBRef);
+                memcpy(commParameters.dstAddress, MmsValue_getOctetStringBuffer(macAddress), 6);
 
-            uint32_t confRev = MmsValue_toUint32(MmsValue_getElement(self->mmsValue, 3));
+                if (mmsMapping->useIntegratedPublisher) {
 
-            GoosePublisher_setConfRev(self->publisher, confRev);
+                    if (self->gooseInterfaceId)
+                        self->publisher = GoosePublisher_createEx(&commParameters, self->gooseInterfaceId, self->useVlanTag);
+                    else
+                        self->publisher = GoosePublisher_createEx(&commParameters, self->mmsMapping->gooseInterfaceId, self->useVlanTag);
 
-            bool needsCom = MmsValue_getBoolean(MmsValue_getElement(self->mmsValue, 4));
+                    if (self->publisher) {
+                        self->minTime = MmsValue_toUint32(MmsValue_getElement(self->mmsValue, 6));
+                        self->maxTime = MmsValue_toUint32(MmsValue_getElement(self->mmsValue, 7));
 
-            GoosePublisher_setNeedsCommission(self->publisher, needsCom);
+                        GoosePublisher_setTimeAllowedToLive(self->publisher, self->maxTime * 3);
 
-            if (self->goId != NULL)
-                GoosePublisher_setGoID(self->publisher, self->goId);
+                        GoosePublisher_setDataSetRef(self->publisher, self->dataSetRef);
 
-            //prepare data set values
-            self->dataSetValues = LinkedList_create();
+                        GoosePublisher_setGoCbRef(self->publisher, self->goCBRef);
 
-            DataSetEntry* dataSetEntry = self->dataSet->fcdas;
+                        uint32_t confRev = MmsValue_toUint32(MmsValue_getElement(self->mmsValue, 3));
 
-            while (dataSetEntry != NULL) {
-                LinkedList_add(self->dataSetValues, dataSetEntry->value);
-                dataSetEntry = dataSetEntry->sibling;
+                        GoosePublisher_setConfRev(self->publisher, confRev);
+
+                        bool needsCom = MmsValue_getBoolean(MmsValue_getElement(self->mmsValue, 4));
+
+                        GoosePublisher_setNeedsCommission(self->publisher, needsCom);
+
+                        if (self->goId != NULL)
+                            GoosePublisher_setGoID(self->publisher, self->goId);
+
+                        /* prepare data set values */
+                        self->dataSetValues = LinkedList_create();
+
+                        DataSetEntry* dataSetEntry = self->dataSet->fcdas;
+
+                        while (dataSetEntry != NULL) {
+                            LinkedList_add(self->dataSetValues, dataSetEntry->value);
+                            dataSetEntry = dataSetEntry->sibling;
+                        }
+                    }
+                    else {
+                        if (DEBUG_IED_SERVER)
+                            printf("IED_SERVER: Failed to create GOOSE publisher!\n");
+                    }
+                }
+
+                self->goEna = true;
+
+                retVal = true;
+
+#if (CONFIG_IEC61850_SERVICE_TRACKING == 1)
+                copyGCBValuesToTrackingObject(self);
+                updateGenericTrackingObjectValues(self, IEC61850_SERVICE_TYPE_SET_GOCB_VALUES, DATA_ACCESS_ERROR_SUCCESS);
+#endif /* (CONFIG_IEC61850_SERVICE_TRACKING == 1) */
             }
 
-            self->goEna = true;
         }
 
+    }
+    else {
+        if (DEBUG_IED_SERVER)
+            printf("GoCB already enabled!\n");
     }
 
 #if (CONFIG_MMS_THREADLESS_STACK != 1)
     Semaphore_post(self->publisherMutex);
 #endif
+
+    return retVal;
 }
 
 void
-MmsGooseControlBlock_disable(MmsGooseControlBlock self)
+MmsGooseControlBlock_disable(MmsGooseControlBlock self, MmsMapping* mmsMapping)
 {
     if (MmsGooseControlBlock_isEnabled(self)) {
         MmsValue* goEna = MmsValue_getElement(self->mmsValue, 0);
@@ -279,12 +562,20 @@ MmsGooseControlBlock_disable(MmsGooseControlBlock self)
         Semaphore_wait(self->publisherMutex);
 #endif
 
-        if (self->publisher != NULL) {
-            GoosePublisher_destroy(self->publisher);
-            self->publisher = NULL;
-            LinkedList_destroyStatic(self->dataSetValues);
-            self->dataSetValues = NULL;
+        if (mmsMapping->useIntegratedPublisher) {
+            if (self->publisher != NULL) {
+                GoosePublisher_destroy(self->publisher);
+                self->publisher = NULL;
+                LinkedList_destroyStatic(self->dataSetValues);
+                self->dataSetValues = NULL;
+            }
         }
+
+#if (CONFIG_IEC61850_SERVICE_TRACKING == 1)
+        MmsDataAccessError retVal = DATA_ACCESS_ERROR_SUCCESS;
+        copyGCBValuesToTrackingObject(self);
+        updateGenericTrackingObjectValues(self, IEC61850_SERVICE_TYPE_SET_GOCB_VALUES, retVal);
+#endif /* (CONFIG_IEC61850_SERVICE_TRACKING == 1) */
 
 #if (CONFIG_MMS_THREADLESS_STACK != 1)
         Semaphore_post(self->publisherMutex);
@@ -294,45 +585,65 @@ MmsGooseControlBlock_disable(MmsGooseControlBlock self)
 
 
 void
-MmsGooseControlBlock_checkAndPublish(MmsGooseControlBlock self, uint64_t currentTime)
+MmsGooseControlBlock_checkAndPublish(MmsGooseControlBlock self, uint64_t currentTime, MmsMapping* mapping)
 {
-    if (currentTime >= self->nextPublishTime) {
+    if (self->publisher) {
+        if (currentTime >= self->nextPublishTime) {
+
+            IedServer_lockDataModel(mapping->iedServer);
+
+            if (currentTime >= self->nextPublishTime) {
 
 #if (CONFIG_MMS_THREADLESS_STACK != 1)
-        Semaphore_wait(self->publisherMutex);
+                Semaphore_wait(self->publisherMutex);
 #endif
 
-        GoosePublisher_publish(self->publisher, self->dataSetValues);
+                GoosePublisher_publish(self->publisher, self->dataSetValues);
 
-        if (self->retransmissionsLeft > 0) {
+                if (self->retransmissionsLeft > 0) {
+                    self->nextPublishTime = currentTime + self->minTime;
+
+
+                    if (self->retransmissionsLeft > 1)
+                        GoosePublisher_setTimeAllowedToLive(self->publisher, self->minTime * 3);
+                    else
+                        GoosePublisher_setTimeAllowedToLive(self->publisher, self->maxTime * 3);
+
+                    self->retransmissionsLeft--;
+                }
+                else {
+                    GoosePublisher_setTimeAllowedToLive(self->publisher, self->maxTime * 3);
+
+                    self->nextPublishTime = currentTime + self->maxTime;
+                }
+
+#if (CONFIG_MMS_THREADLESS_STACK != 1)
+                Semaphore_post(self->publisherMutex);
+#endif
+            }
+
+            IedServer_unlockDataModel(mapping->iedServer);
+
+        }
+        else if ((self->nextPublishTime - currentTime) > ((uint32_t) self->maxTime * 2)) {
             self->nextPublishTime = currentTime + self->minTime;
-
-
-            if (self->retransmissionsLeft > 1)
-                GoosePublisher_setTimeAllowedToLive(self->publisher, self->minTime * 3);
-            else
-                GoosePublisher_setTimeAllowedToLive(self->publisher, self->maxTime * 3);
-
-            self->retransmissionsLeft--;
         }
-        else {
-            GoosePublisher_setTimeAllowedToLive(self->publisher, self->maxTime * 3);
-
-            self->nextPublishTime = currentTime + self->maxTime;
-        }
-
-#if (CONFIG_MMS_THREADLESS_STACK != 1)
-        Semaphore_post(self->publisherMutex);
-#endif
-    }
-    else if ((self->nextPublishTime - currentTime) > ((uint32_t) self->maxTime * 2)) {
-        self->nextPublishTime = currentTime + self->minTime;
     }
 }
 
 void
-MmsGooseControlBlock_observedObjectChanged(MmsGooseControlBlock self)
+MmsGooseControlBlock_setStateChangePending(MmsGooseControlBlock self)
 {
+    self->stateChangePending = true;
+}
+
+void
+MmsGooseControlBlock_publishNewState(MmsGooseControlBlock self)
+{
+    if (self->publisher == false)
+        return;
+
+    if (self->stateChangePending) {
 #if (CONFIG_MMS_THREADLESS_STACK != 1)
     Semaphore_wait(self->publisherMutex);
 #endif
@@ -354,9 +665,12 @@ MmsGooseControlBlock_observedObjectChanged(MmsGooseControlBlock self)
 
     GoosePublisher_publish(self->publisher, self->dataSetValues);
 
+    self->stateChangePending = false;
+
 #if (CONFIG_MMS_THREADLESS_STACK != 1)
     Semaphore_post(self->publisherMutex);
 #endif
+    }
 }
 
 static MmsVariableSpecification*
@@ -464,6 +778,22 @@ createDataSetReference(char* domainName, char* lnName, char* dataSetName)
     return dataSetReference;
 }
 
+void
+GOOSE_sendPendingEvents(MmsMapping* self)
+{
+    if (self->useIntegratedPublisher) {
+        LinkedList element = self->gseControls;
+
+        while ((element = LinkedList_getNext(element)) != NULL) {
+            MmsGooseControlBlock gcb = (MmsGooseControlBlock) element->data;
+
+            if (MmsGooseControlBlock_isEnabled(gcb)) {
+                MmsGooseControlBlock_publishNewState(gcb);
+            }
+        }
+    }
+}
+
 MmsVariableSpecification*
 GOOSE_createGOOSEControlBlocks(MmsMapping* self, MmsDomain* domain,
         LogicalNode* logicalNode, int gseCount)
@@ -503,11 +833,13 @@ GOOSE_createGOOSEControlBlocks(MmsMapping* self, MmsDomain* domain,
             mmsGCB->goId = StringUtils_copyString(gooseControlBlock->appId);
         }
 
-        if (gooseControlBlock->dataSetName != NULL)
+        if ((gooseControlBlock->dataSetName != NULL) && (gooseControlBlock->dataSetName[0] != 0)) {
         	mmsGCB->dataSetRef = createDataSetReference(MmsDomain_getName(domain),
         			logicalNode->name, gooseControlBlock->dataSetName);
-        else
+        }
+        else {
         	mmsGCB->dataSetRef = NULL;
+        }
 
         MmsValue* dataSetRef = MmsValue_getElement(gseValues, 2);
 
@@ -572,7 +904,14 @@ GOOSE_createGOOSEControlBlocks(MmsMapping* self, MmsDomain* domain,
         MmsValue* maxTime = MmsValue_getElement(gseValues, 7);
         MmsValue_setUint32(maxTime, mmsGCB->maxTime);
 
+        if (mmsGCB->dataSetRef)
+            setNdsCom(mmsGCB, false);
+        else
+            setNdsCom(mmsGCB, true);
+
         mmsGCB->mmsMapping = self;
+
+        mmsGCB->stateChangePending = false;
 
         LinkedList_add(self->gseControls, mmsGCB);
 

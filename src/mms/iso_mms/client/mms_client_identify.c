@@ -1,7 +1,7 @@
 /*
  *  mms_client_identify.c
  *
- *  Copyright 2013 Michael Zillgith
+ *  Copyright 2013-2018 Michael Zillgith
  *
  *  This file is part of libIEC61850.
  *
@@ -49,14 +49,15 @@ mmsClient_createIdentifyRequest(uint32_t invokeId, ByteBuffer* request)
     request->size = bufPos;
 }
 
-MmsServerIdentity*
-mmsClient_parseIdentifyResponse(MmsConnection self)
+bool
+mmsClient_parseIdentifyResponse(MmsConnection self, ByteBuffer* response, uint32_t respBufPos, uint32_t invokeId, MmsConnection_IdentifyHandler handler, void* parameter)
 {
-    uint8_t* buffer = self->lastResponse->buffer;
-    int maxBufPos = self->lastResponse->size;
-    int bufPos = self->lastResponseBufPos;
+    (void)self;
+
+    uint8_t* buffer = ByteBuffer_getBuffer(response);
+    int maxBufPos = ByteBuffer_getSize(response);
     int length;
-    MmsServerIdentity* identityInfo = NULL;
+    int bufPos = (int) respBufPos;
 
     uint8_t tag = buffer[bufPos++];
     if (tag != 0xa2)
@@ -67,11 +68,9 @@ mmsClient_parseIdentifyResponse(MmsConnection self)
 
     int endPos = bufPos + length;
 
-    if (endPos > maxBufPos) {
-        if (DEBUG_MMS_CLIENT)
-            printf("mmsClient_parseIdentifyResponse: Message to short!\n");
-        goto exit_error;
-    }
+    char vendorNameBuf[100];
+    char modelNameBuf[100];
+    char revisionBuf[100];
 
     char* vendorName = NULL;
     char* modelName = NULL;
@@ -85,19 +84,21 @@ mmsClient_parseIdentifyResponse(MmsConnection self)
 
         switch (tag) {
         case 0x80: /* vendorName */
-            vendorName = StringUtils_createStringFromBuffer(buffer + bufPos, length);
+            vendorName = StringUtils_createStringFromBufferInBuffer(vendorNameBuf, buffer + bufPos, length);
             bufPos += length;
             break;
         case 0x81: /* modelName */
-            modelName = StringUtils_createStringFromBuffer(buffer + bufPos, length);
+            modelName = StringUtils_createStringFromBufferInBuffer(modelNameBuf, buffer + bufPos, length);
             bufPos += length;
             break;
         case 0x82: /* revision */
-            revision = StringUtils_createStringFromBuffer(buffer + bufPos, length);
+            revision = StringUtils_createStringFromBufferInBuffer(revisionBuf, buffer + bufPos, length);
             bufPos += length;
             break;
         case 0x83: /* list of abstract syntaxes */
             bufPos += length;
+            break;
+        case 0x00: /* indefinite length end tag -> ignore */
             break;
         default: /* ignore unknown tags */
         	bufPos += length;
@@ -105,14 +106,12 @@ mmsClient_parseIdentifyResponse(MmsConnection self)
         }
     }
 
-    identityInfo = (MmsServerIdentity*) GLOBAL_MALLOC(sizeof(MmsServerIdentity));
+    handler(invokeId, parameter, MMS_ERROR_NONE, vendorName, modelName, revision);
 
-    identityInfo->vendorName = vendorName;
-    identityInfo->modelName = modelName;
-    identityInfo->revision = revision;
+    return true;
 
 exit_error:
-    return identityInfo;
+    return false;
 }
 
 

@@ -1,7 +1,7 @@
 /*
  *  acse.h
  *
- *  Copyright 2013 Michael Zillgith
+ *  Copyright 2013-2018 Michael Zillgith
  *
  *  This file is part of libIEC61850.
  *
@@ -68,19 +68,16 @@ typedef struct sAcseConnection
 #define ACSE_RESULT_REJECT_PERMANENT 1
 #define ACSE_RESULT_REJECT_TRANSIENT 2
 
-void
+LIB61850_INTERNAL void
 AcseConnection_init(AcseConnection* self, AcseAuthenticator authenticator, void* parameter, TLSSocket tlsSocket);
 
-void
-AcseConnection_destroy(AcseConnection* self);
-
-AcseIndication
+LIB61850_INTERNAL AcseIndication
 AcseConnection_parseMessage(AcseConnection* self, ByteBuffer* message);
 
-void
+LIB61850_INTERNAL void
 AcseConnection_createAssociateFailedMessage(AcseConnection* connection, BufferChain writeBuffer);
 
-void
+LIB61850_INTERNAL void
 AcseConnection_createAssociateResponseMessage(
         AcseConnection* self,
         uint8_t resultCode,
@@ -88,20 +85,20 @@ AcseConnection_createAssociateResponseMessage(
         BufferChain payloadBuffer
         );
 
-void
+LIB61850_INTERNAL void
 AcseConnection_createAssociateRequestMessage(AcseConnection* self,
         IsoConnectionParameters isoParameters,
         BufferChain writeBuffer,
         BufferChain payload,
         AcseAuthenticationParameter authParameter);
 
-void
+LIB61850_INTERNAL void
 AcseConnection_createAbortMessage(AcseConnection* self, BufferChain writeBuffer, bool isProvider);
 
-void
+LIB61850_INTERNAL void
 AcseConnection_createReleaseRequestMessage(AcseConnection* self, BufferChain writeBuffer);
 
-void
+LIB61850_INTERNAL void
 AcseConnection_createReleaseResponseMessage(AcseConnection* self, BufferChain writeBuffer);
 
 #endif /* ACSE_H_ */

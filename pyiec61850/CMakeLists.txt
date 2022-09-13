@@ -1,8 +1,12 @@
+# The SWIG functions/macros used in this module, swig_add_module and swig_add_library
+# are not available in CMake versions earlier than 3.8
+# cmake_minimum_required(VERSION 3.8)
+
 find_package(SWIG REQUIRED)
 include(${SWIG_USE_FILE})
 
-find_package(PythonLibs REQUIRED)
-find_package(PythonInterp ${PYTHONLIBS_VERSION_STRING} EXACT REQUIRED)
+find_package(PythonInterp ${BUILD_PYTHON_VERSION} REQUIRED)
+find_package(PythonLibs ${PYTHON_VERSION_STRING} EXACT REQUIRED)
 
 include_directories(${PYTHON_INCLUDE_PATH})
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
@@ -16,7 +20,7 @@ else()
     set(LIBS iec61850-shared)
 endif()
 
-if(${SWIG_VERSION} VERSION_LESS 3.0)
+if(${CMAKE_VERSION} VERSION_LESS 3.8)
     swig_add_module(iec61850 python iec61850.i)
 else()
     swig_add_library(iec61850
@@ -30,7 +34,7 @@ swig_link_libraries(iec61850 ${PYTHON_LIBRARIES} ${LIBS})
 # Finding python modules install path
 execute_process(
 	COMMAND ${PYTHON_EXECUTABLE} -c
-	"import site, sys; sys.stdout.write(site.getsitepackages()[-1])"
+	"from distutils.sysconfig import get_python_lib; import sys; sys.stdout.write(get_python_lib())"
 	OUTPUT_VARIABLE PYTHON_SITE_DIR
 )
 

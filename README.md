@@ -2,24 +2,31 @@
 
 [![Build Status](https://travis-ci.org/mz-automation/libiec61850.svg?branch=master)](https://travis-ci.org/mz-automation/libiec61850)
 
-This file is part of the documentation of **libIEC61850**. More documentation can be found online at http://libiec61850.com or in the provided doxygen documentation. Also consider to review the examples to understand how to use the library
+This file is part of the documentation of **libIEC61850**. More documentation can be found online at http://libiec61850.com.
+
+The API documentation can be found here:
+* C API: https://support.mz-automation.de/doc/libiec61850/c/latest/
+* .NET API: https://support.mz-automation.de/doc/libiec61850/net/latest/
+
+Also consider to review the examples to understand how to use the library.
 
 Content:
 
-* Overview
-* Building and running the examples
-* Installing the library and the API headers
-* Building on Windows with GOOSE support
-* Building with the cmake build script
-* Using the log service with sqlite
-* C# API
-* Licensing
-* Contributing
-* Third-party contributions
-
+* [Overview](#overview)
+* [Features](#features)
+* [Examples](#examples)
+* [Building and running the examples](#building-and-running-the-examples-with-the-provided-makefiles)
+* [Building the library with TLS support](#building-the-library-with-tls-support)
+* [Installing the library and the API headers](#installing-the-library-and-the-api-headers)
+* [Building on Windows with GOOSE support](#building-on-windows-with-goose-support)
+* [Building with the cmake build script](#building-with-the-cmake-build-script)
+* [Using the log service with sqlite](#using-the-log-service-with-sqlite)
+* [C# API](#c-api)
+* [Experimental Python bindings](#experimental-python-bindings)
+* [Licensing](#commercial-licenses-and-support)
+* [Contributing](#contributing)
 
 ## Overview
-
 
 libiec61850 is an open-source (GPLv3) implementation of an IEC 61850 client and server library implementing the protocols MMS, GOOSE and SV. It is implemented in C (according to the C99 standard) to provide maximum portability. It can be used to implement IEC 61850 compliant client and server applications on embedded systems and PCs running Linux, Windows, and MacOS. Included is a set of simple example applications that can be used as a starting point to implement own IEC 61850 compliant devices or to communicate with IEC 61850 devices. The library has been successfully used in many commercial software products and devices.
 
@@ -44,10 +51,17 @@ The library support the following IEC 61850 protocol features:
 * MMS file services (browse, get file, set file, delete/rename file)
 ** required to download COMTRADE files
 * Setting group handling
+* Support for service tracking
 * GOOSE and SV control block handling
 * TLS support
 * C and C#/.NET API
 
+
+## Examples
+
+The examples are built automatically when CMake is used to build the library.
+
+NOTE: Most examples are intended to show a specific function of the library. They are designed to show this function as simple as possible and may miss error handling that has to be present in real applications!
 
 ## Building and running the examples with the provided makefiles
 
@@ -72,13 +86,17 @@ You can test the server examples by using a generic client or the provided clien
 
 ## Building the library with TLS support
 
-Download, unpack, and copy mbedtls-2.6.0 into the third_party/mbedtls folder.
+Download, unpack, and copy mbedtls-2.16 into the third_party/mbedtls folder.
+
+NOTE: The current version support mbedtls version 2.16. When you download the source archive from https://tls.mbed.org/ you have to rename the extracted folder to "mbedtls-2.16".
 
 In the main libiec61850 folder run
 
 ```
 make WITH_MBEDTLS=1
-``` 
+```
+
+When using CMake the library is built automatically with TLS support when the folder third_party/mbedtls/mbedtls-2.16 is present.
 
 ## Installing the library and the API headers
 
@@ -126,6 +144,16 @@ Depending on the system you don't have to provide a generator to the cmake comma
 
 To select some configuration options you can use ccmake or cmake-gui.
 
+For newer version of Visual Studio you can use one of the following commands (for 64 bit builds):
+
+For Visual Studio 2017:
+
+  cmake -G "Visual Studio 15 2017 Win64" ..
+  
+For Visual Studio 2019 (new way to specify the x64 platform):
+
+  cmake -G "Visual Studio 16 2019" .. -A x64
+
 
 ## Using the log service with sqlite
 
@@ -148,6 +176,8 @@ The experimental Python binding can be created using SWIG with cmake.
 
 To enable the bindings you have to select the phyton configuration option with ccmake of cmake-gui.
 
+We don't provide any support for the Python bindings!
+
 ## Commercial licenses and support
 
 Support and commercial license options are provided by MZ Automation GmbH. Please contact info@mz-automation.de for more details.
@@ -156,10 +186,4 @@ Support and commercial license options are provided by MZ Automation GmbH. Pleas
 
 If you want to contribute to the improvement and development of the library please send me comments, feature requests, bug reports, or patches. For more than trivial contributions I require you to sign a Contributor License Agreement. Please contact info@libiec61850.com.
 
-
-## Third-party contributions
-
-- The Mac OS X socket and ethernet layer has been kindly contributed by Michael Clausen, HES-SO Valais-Wallis, http://www.hevs.ch 
-
-
-
+Please don't send pull requests before signing the Contributor License Agreement! Such pull requests may be silently ignored.

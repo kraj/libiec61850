@@ -30,9 +30,11 @@ StringUtils_copySubString(char* startPos, char* endPos)
 
 	char* newString = (char*) GLOBAL_MALLOC(newStringLength + 1);
 
-	memcpy(newString, startPos, newStringLength);
+	if (newString) {
+	    memcpy(newString, startPos, newStringLength);
 
-	newString[newStringLength] = 0;
+	    newString[newStringLength] = 0;
+	}
 
 	return newString;
 }
@@ -44,7 +46,8 @@ StringUtils_copyString(const char* string)
 
 	char* newString = (char*) GLOBAL_MALLOC(newStringLength);
 
-	memcpy(newString, string, newStringLength);
+	if (newString)
+	    memcpy(newString, string, newStringLength);
 
 	return newString;
 }
@@ -65,8 +68,10 @@ StringUtils_createStringFromBuffer(const uint8_t* buf, int size)
 {
 	char* newStr = (char*) GLOBAL_MALLOC(size + 1);
 
-	memcpy(newStr, buf, size);
-	newStr[size] = 0;
+	if (newStr) {
+	    memcpy(newStr, buf, size);
+	    newStr[size] = 0;
+	}
 
 	return newStr;
 }
@@ -80,23 +85,22 @@ StringUtils_createStringFromBufferInBuffer(char* newString, const uint8_t* buf, 
     return newString;
 }
 
-
 char*
-StringUtils_createStringInBuffer(char* newStr, int count, ...)
+StringUtils_createStringInBuffer(char* newStr, int bufSize, int count, ...)
 {
     va_list ap;
-    char* currentPos = newStr;
-    int i;
 
-    va_start(ap, count);
-    for (i = 0; i < count; i++) {
-        char* str = va_arg(ap, char*);
-        strcpy(currentPos, str);
-        currentPos += strlen(str);
+    if (bufSize > 0) {
+        newStr[0] = 0;
+        int i;
+
+        va_start(ap, count);
+        for (i = 0; i < count; i++) {
+            char* str = va_arg(ap, char*);
+            StringUtils_appendString(newStr, bufSize, str);
+        }
+        va_end(ap);
     }
-    va_end(ap);
-
-    *currentPos = 0;
 
     return newStr;
 }
@@ -106,7 +110,6 @@ StringUtils_createString(int count, ...)
 {
 	va_list ap;
 	char* newStr;
-	char* currentPos;
 	int newStringLength = 0;
 	int i;
 
@@ -120,20 +123,155 @@ StringUtils_createString(int count, ...)
 	va_end(ap);
 
 	newStr = (char*) GLOBAL_MALLOC(newStringLength + 1);
-	currentPos = newStr;
 
+	if (newStr) {
+	    char* currentPos = newStr;
 
-	va_start(ap, count);
-	for (i = 0; i < count; i++) {
-		char* str = va_arg(ap, char*);
-		strcpy(currentPos, str);
-		currentPos += strlen(str);
+	    va_start(ap, count);
+	    for (i = 0; i < count; i++) {
+	        char* str = va_arg(ap, char*);
+	        strcpy(currentPos, str);
+	        currentPos += strlen(str);
+	    }
+	    va_end(ap);
 	}
-	va_end(ap);
-
-	*currentPos = 0;
 
 	return newStr;
+}
+
+char*
+StringUtils_concatString(char* dest, int maxBufferSize, const char* str1, const char* str2)
+{
+    char* res = dest;
+
+    if (dest == NULL)
+        res = (char*)GLOBAL_MALLOC(maxBufferSize);
+
+    if (res)
+    {
+        int maxStringSize = maxBufferSize -1;
+
+        int destPos = 0;
+
+        int i = 0;
+        while (str1[i] != 0) {
+
+            if (destPos < maxStringSize) {
+                res[destPos] = str1[i];
+                destPos++;
+            }
+            else {
+                res[destPos] = 0;
+                return res;
+            }
+
+            i++;
+        }
+
+        i = 0;
+        while (str2[i] != 0) {
+
+            if (destPos < maxStringSize) {
+                res[destPos] = str2[i];
+                destPos++;
+            }
+            else {
+                res[destPos] = 0;
+                return res;
+            }
+
+            i++;
+        }
+
+        res[destPos] = 0;
+    }
+
+    return res;
+}
+
+char*
+StringUtils_copyStringMax(char* dest, int maxBufferSize, const char* str1)
+{
+    char* res = dest;
+
+    if (dest == NULL)
+        res = (char*)GLOBAL_MALLOC(maxBufferSize);
+
+    if (res)
+    {
+        int maxStringSize = maxBufferSize -1;
+
+        int destPos = 0;
+
+        int i = 0;
+        while (str1[i] != 0) {
+
+            if (destPos < maxStringSize) {
+                res[destPos] = str1[i];
+                destPos++;
+            }
+            else {
+                res[destPos] = 0;
+                return res;
+            }
+
+            i++;
+        }
+
+        res[destPos] = 0;
+    }
+
+    return res;
+}
+
+char*
+StringUtils_appendString(char* dest, int maxBufferSize, const char* str)
+{
+    /* find end of existing string */
+    int i = 0;
+
+    while (i < maxBufferSize) {
+        if (dest[i] == 0) {
+            break;
+        }
+
+        i++;
+    }
+
+    if (i == maxBufferSize) {
+        /* append string terminator and return */
+        if (maxBufferSize > 0) {
+            dest[maxBufferSize - 1] = 0;
+        }
+
+        return dest;
+    }
+
+    int srcPos = 0;
+
+    while (i < maxBufferSize) {
+
+        if (str[srcPos] == 0) {
+            break;
+        }
+
+        dest[i] = str[srcPos];
+
+        i++;
+        srcPos++;
+    }
+
+    if (i == maxBufferSize) {
+        /* append string terminator and return */
+        if (maxBufferSize > 0) {
+            dest[maxBufferSize - 1] = 0;
+        }
+    }
+    else {
+        dest[i] = 0;
+    }
+
+    return dest;
 }
 
 void
@@ -223,7 +361,7 @@ StringUtils_createBufferFromHexString(char* hexString, uint8_t* buffer)
 }
 
 bool
-StringUtils_startsWith(char* string, char* prefix)
+StringUtils_startsWith(const char* string, const char* prefix)
 {
     int index = 0;
 
@@ -264,11 +402,11 @@ getCharWeight(int c)
 {
 	static bool initialized = false;
 	static char lookupTable[LT_MAX_CHARS + 1];
-	static char* charOrder = "AaBbCcDdEeFfGgHhIiJjKkLlMmNnOoPpQqRrSsTtUuVvWwXxYyZz$_0123456789";
 
 	if (!initialized) {
 		int ltIndex;
 		int weight = 1;
+	    const char* charOrder = "AaBbCcDdEeFfGgHhIiJjKkLlMmNnOoPpQqRrSsTtUuVvWwXxYyZz$_0123456789";
 
 		for (ltIndex = 1;  ltIndex < LT_MAX_CHARS; ltIndex++) {
 			if (strchr(charOrder, ltIndex)) continue;
@@ -378,3 +516,127 @@ StringUtils_sortList(LinkedList list)
 	list->next = sortedList->next;
 }
 
+static bool
+convertHexStrToUint16(char* hexStr, uint16_t* result)
+{
+    int strSize = strlen(hexStr);
+
+    if (strSize > 4)
+        return false;
+
+    int val = 0;
+    int i;
+    int nibble;
+
+    for (i = 0; i < strSize; i++) {
+        char nibbleChar = hexStr[i];
+
+        if ((nibbleChar > 47) && (nibbleChar < 58)) {
+            nibble = nibbleChar - 48;
+        }
+        else if ((nibbleChar > 96) && (nibbleChar < 103)) {
+            nibble = nibbleChar - 87;
+        }
+        else if ((nibbleChar > 64) && (nibbleChar < 71)) {
+            nibble = nibbleChar - 55;
+        }
+        else {
+            return false;
+        }
+
+        val <<= 4;
+        val += nibble;
+    }
+
+    *result = val;
+
+    return true;
+}
+
+bool
+StringUtils_convertIPv6AdddressStringToByteArray(const char* addressString, uint8_t ipV6Addr[])
+{
+    char tokenBuf[100];
+
+    uint16_t addrBlocks[8];
+
+    int blockCount = 0;
+    int emptyBlockIndex = 0;
+    bool hasEmptyBlock = false;
+    bool end = false;
+
+    char* savePtr = (char*) addressString;
+    char* sepPos = strchr(savePtr, ':');
+
+    while (sepPos) {
+
+        memcpy(tokenBuf, savePtr, sepPos - savePtr);
+        tokenBuf[sepPos - savePtr] = 0;
+        savePtr = sepPos + 1;
+
+        if (strlen(tokenBuf) == 0) {
+
+            if (hasEmptyBlock) {
+                return false;
+            }
+
+            hasEmptyBlock = true;
+            emptyBlockIndex = blockCount;
+        }
+        else {
+            uint16_t blockVal;
+
+            if (convertHexStrToUint16(tokenBuf, &blockVal) == false)
+                return false;
+
+            addrBlocks[blockCount] = blockVal;
+
+            blockCount ++;
+        }
+
+        if (blockCount == 8)
+            break;
+
+        if (end)
+            break;
+
+        sepPos = strchr(savePtr, ':');
+
+        if (sepPos == NULL) {
+            if (*savePtr != 0)
+                sepPos = strchr(savePtr, 0);
+            end = true;
+        }
+    }
+
+    if (hasEmptyBlock) {
+        /* shift blocks */
+        int shiftBlocks = blockCount - emptyBlockIndex;
+        int shift = 8 - blockCount;
+
+        int s;
+
+        /* fill empty blocks with zero */
+        for (s = blockCount; s < 8; s++) {
+            addrBlocks[s] = 0;
+            blockCount++;
+        }
+
+        for (s = 0; s < shiftBlocks; s++) {
+            addrBlocks[s + emptyBlockIndex + shift] =  addrBlocks[s + emptyBlockIndex];
+            addrBlocks[s + emptyBlockIndex] = 0;
+        }
+    }
+
+    if (blockCount != 8)
+        return false;
+
+    int i = 0;
+
+    for (i = 0; i < 8; i++) {
+        ipV6Addr[(i * 2)] = addrBlocks[i] / 0x100;
+        ipV6Addr[(i * 2) + 1] = addrBlocks[i] & 0xff;
+    }
+
+    return true;
+}

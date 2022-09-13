@@ -1,7 +1,7 @@
 /*
  *  goose_receiver.h
  *
- *  Copyright 2014 Michael Zillgith
+ *  Copyright 2014-2019 Michael Zillgith
  *
  *  This file is part of libIEC61850.
  *
@@ -48,8 +48,21 @@ typedef struct sGooseReceiver* GooseReceiver;
  *
  * \return the new GooseReceiver instance
  */
-GooseReceiver
+LIB61850_API GooseReceiver
 GooseReceiver_create(void);
+
+/**
+ * \brief Create a new receiver instance using the provided buffer instead of allocating an own buffer
+ *
+ * A GooseReceiver instance is used to handle all GOOSE messages received on a specific
+ * network interface.
+ *
+ * \param buffer buffer to store Ethernet messages or NULL when using \ref GooseReceiver_handleMessage
+ *
+ * \return the new GooseReceiver instance
+ */
+LIB61850_API GooseReceiver
+GooseReceiver_createEx(uint8_t* buffer);
 
 /**
  * \brief sets the interface for the GOOSE receiver
@@ -57,8 +70,18 @@ GooseReceiver_create(void);
  * \param self the GooseReceiver instance
  * \param interfaceId
  */
-void
+LIB61850_API void
 GooseReceiver_setInterfaceId(GooseReceiver self, const char* interfaceId);
+
+/**
+ * \brief return the interface ID used by the GOOSE receiver
+ *
+ * \param self the GosseReceiver instance
+ *
+ * \return the Ethernet interface ID string
+ */
+LIB61850_API const char*
+GooseReceiver_getInterfaceId(GooseReceiver self);
 
 /**
  * \brief Add a subscriber to this receiver instance
@@ -69,7 +92,7 @@ GooseReceiver_setInterfaceId(GooseReceiver self, const char* interfaceId);
  * \param self the GooseReceiver instance
  * \param subscriber the GooseSubscriber instance to add
  */
-void
+LIB61850_API void
 GooseReceiver_addSubscriber(GooseReceiver self, GooseSubscriber subscriber);
 
 /**
@@ -81,7 +104,7 @@ GooseReceiver_addSubscriber(GooseReceiver self, GooseSubscriber subscriber);
  * \param self the GooseReceiver instance
  * \param subscriber the GooseSubscriber instance to remove
  */
-void
+LIB61850_API void
 GooseReceiver_removeSubscriber(GooseReceiver self, GooseSubscriber subscriber);
 
 /**
@@ -89,7 +112,7 @@ GooseReceiver_removeSubscriber(GooseReceiver self, GooseSubscriber subscriber);
  *
  * \param self the GooseReceiver instance
  */
-void
+LIB61850_API void
 GooseReceiver_start(GooseReceiver self);
 
 /**
@@ -99,7 +122,7 @@ GooseReceiver_start(GooseReceiver self);
  *
  * \param self the GooseReceiver instance
  */
-void
+LIB61850_API void
 GooseReceiver_stop(GooseReceiver self);
 
 /**
@@ -111,7 +134,7 @@ GooseReceiver_stop(GooseReceiver self);
  *
  * \return true if GOOSE receiver is running, false otherwise
  */
-bool
+LIB61850_API bool
 GooseReceiver_isRunning(GooseReceiver self);
 
 /**
@@ -119,29 +142,42 @@ GooseReceiver_isRunning(GooseReceiver self);
  *
  * \param self the GooseReceiver instance
  */
-void
+LIB61850_API void
 GooseReceiver_destroy(GooseReceiver self);
 
 /***************************************
  * Functions for non-threaded operation
  ***************************************/
-EthernetSocket
+LIB61850_API EthernetSocket
 GooseReceiver_startThreadless(GooseReceiver self);
 
-void
+LIB61850_API void
 GooseReceiver_stopThreadless(GooseReceiver self);
 
 /**
  * \brief Parse GOOSE messages if they are available
  *
- * Call after reception of ethernet frame and periodically to to house keeping tasks
+ * Call after reception of an Ethernet frame or periodically
  *
  * \param self the receiver object
  *
  * \return true if a message was available and has been parsed, false otherwise
  */
-bool
+LIB61850_API bool
 GooseReceiver_tick(GooseReceiver self);
+
+/**
+ * \brief Parse a GOOSE message
+ *
+ * Call after reception of an Ethernet frame (can be used as an alternative to \ref GooseReceiver_tick
+ * to avoid implementing the Ethernet HAL)
+ *
+ * \param self the receiver object
+ * \param buffer a buffer containing the complete Ethernet message
+ * \param size size of the Ethernet message
+ */
+LIB61850_API void
+GooseReceiver_handleMessage(GooseReceiver self, uint8_t* buffer, int size);
 
 /**@}*/
 

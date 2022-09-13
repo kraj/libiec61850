@@ -28,10 +28,7 @@ using IEC61850.Common;
 
 namespace IEC61850
 {
-
-    /// <summary>
-    /// IEC 61850 common API parts (used by client and server API)
-    /// </summary>
+    // IEC 61850 common API parts (used by client and server API)
 	namespace Common {
 
         /// <summary>
@@ -76,8 +73,8 @@ namespace IEC61850
         }
 	}
 
-	namespace Client {
-
+	namespace Client
+    {
 		[StructLayout(LayoutKind.Sequential)]
 		internal struct LastApplErrorInternal
 		{
@@ -101,6 +98,13 @@ namespace IEC61850
 			}
 		}
 
+        public enum ControlActionType
+        {
+            SELECT = 0,
+            OPERATE = 1,
+            CANCEL = 2
+        }
+
         /// <summary>
         /// Control object.
         /// </summary>
@@ -119,8 +123,38 @@ namespace IEC61850
 			private static extern int ControlObjectClient_getControlModel(IntPtr self);
 
 			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
+			private static extern int ControlObjectClient_getCtlValType(IntPtr self);
+
+            [DllImport ("iec61850", CallingConvention = CallingConvention.Cdecl)]
+            private static extern int ControlObjectClient_getLastError (IntPtr self);
+
+            [DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
             [return: MarshalAs(UnmanagedType.I1)]
 			private static extern bool ControlObjectClient_operate(IntPtr self, IntPtr ctlVal, UInt64 operTime);
+
+            /// <summary>
+            /// Handler for asynchronous control actions (select, operate, cancel)
+            /// </summary>
+            public delegate void ControlActionHandler (UInt32 invokeId, Object parameter, IedClientError error, ControlActionType type, bool success);
+
+            [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+            private delegate void ControlObjectClient_ControlActionHandler (UInt32 invokeId, IntPtr parameter, int err, int type, [MarshalAs(UnmanagedType.I1)] bool success);
+
+            [DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
+            private static extern UInt32 ControlObjectClient_operateAsync(IntPtr self, out int err, IntPtr ctlVal, UInt64 operTime,
+                ControlObjectClient_ControlActionHandler handler, IntPtr parameter);
+
+            [DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
+            private static extern UInt32 ControlObjectClient_selectAsync(IntPtr self, out int err,
+                ControlObjectClient_ControlActionHandler handler, IntPtr parameter);
+
+            [DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
+            private static extern UInt32 ControlObjectClient_selectWithValueAsync(IntPtr self, out int err, IntPtr ctlVal,
+                ControlObjectClient_ControlActionHandler handler, IntPtr parameter);
+
+            [DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
+            private static extern UInt32 ControlObjectClient_cancelAsync(IntPtr self, out int err,
+                ControlObjectClient_ControlActionHandler handler, IntPtr parameter);
 
             [DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
             [return: MarshalAs(UnmanagedType.I1)]
@@ -138,13 +172,13 @@ namespace IEC61850
             private static extern void ControlObjectClient_setOrigin(IntPtr self, string orIdent, int orCat);
 
 			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
-			private static extern void ControlObjectClient_setInterlockCheck(IntPtr self, bool value);
+			private static extern void ControlObjectClient_setInterlockCheck(IntPtr self, [MarshalAs(UnmanagedType.I1)] bool value);
 
 			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
-			private static extern void ControlObjectClient_setSynchroCheck(IntPtr self, bool value);
+			private static extern void ControlObjectClient_setSynchroCheck(IntPtr self, [MarshalAs(UnmanagedType.I1)] bool value);
 
 			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
-			private static extern void ControlObjectClient_setTestMode(IntPtr self, bool value);
+			private static extern void ControlObjectClient_setTestMode(IntPtr self, [MarshalAs(UnmanagedType.I1)] bool value);
 
             [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
 			private delegate void InternalCommandTerminationHandler(IntPtr parameter,IntPtr controlClient);
@@ -156,7 +190,7 @@ namespace IEC61850
 			public delegate void CommandTerminationHandler (Object parameter, ControlObject controlObject);
 
             private IedConnection iedConnection;
-			private IntPtr controlObject;
+			private IntPtr self;
 
 			private CommandTerminationHandler commandTerminationHandler = null;
 			private Object commandTerminationHandlerParameter = null;
@@ -173,14 +207,14 @@ namespace IEC61850
 			{
                 this.iedConnection = iedConnection;
 
-				this.controlObject = ControlObjectClient_create(objectReference, connection);
+				this.self = ControlObjectClient_create(objectReference, connection);
 
-				if (this.controlObject == System.IntPtr.Zero)
+				if (this.self == System.IntPtr.Zero)
 					throw new IedConnectionException("Control object not found", 0);
 
 				intCommandTerminationHandler = new InternalCommandTerminationHandler (MyCommandTerminationHandler);
 
-				ControlObjectClient_setCommandTerminationHandler(controlObject, intCommandTerminationHandler, controlObject);
+				ControlObjectClient_setCommandTerminationHandler(self, intCommandTerminationHandler, self);
 			}
 
             /// <summary>
@@ -191,9 +225,20 @@ namespace IEC61850
             /// </returns>
 			public ControlModel GetControlModel ()
 			{
-				ControlModel controlModel = (ControlModel) ControlObjectClient_getControlModel(controlObject);
+				ControlModel controlModel = (ControlModel) ControlObjectClient_getControlModel(self);
 
 				return controlModel;
+			}
+
+			/// <summary>
+			/// Get the type of ctlVal.
+			/// </summary>
+			/// <returns>MmsType required for the ctlVal value.</returns>
+			public MmsType GetCtlValType ()
+			{
+				MmsType ctlValType = (MmsType) ControlObjectClient_getCtlValType (self);
+
+				return ctlValType;
 			}
 
             /// <summary>
@@ -207,7 +252,17 @@ namespace IEC61850
             /// </param>
             public void SetOrigin (string originator, OrCat originatorCategory)
             {
-                ControlObjectClient_setOrigin(controlObject, originator, (int) originatorCategory);
+                ControlObjectClient_setOrigin(self, originator, (int) originatorCategory);
+            }
+
+            /// <summary>
+            /// Gets the error code of the last synchronous control action (operate, select, select-with-value, cancel)
+            /// </summary>
+            /// <value>error code.</value>
+            public IedClientError LastError {
+                get {
+                    return (IedClientError)ControlObjectClient_getLastError (self);
+                }
             }
 
             /// <summary>
@@ -297,8 +352,156 @@ namespace IEC61850
             /// <returns>true when the operation has been successful, false otherwise</returns>
 			public bool Operate (MmsValue ctlVal, UInt64 operTime)
 			{
-				return ControlObjectClient_operate(controlObject, ctlVal.valueReference, operTime);
+				return ControlObjectClient_operate(self, ctlVal.valueReference, operTime);
 			}
+
+            private ControlObjectClient_ControlActionHandler internalOperateHandler = null;
+
+            private void nativeOperateHandler (UInt32 invokeId, IntPtr parameter, int err, int type, bool success)
+            {
+                GCHandle handle = GCHandle.FromIntPtr(parameter);
+
+                Tuple<ControlActionHandler, object>  callbackInfo = handle.Target as Tuple<ControlActionHandler, object>;
+
+                ControlActionHandler handler = callbackInfo.Item1;
+                object handlerParameter = callbackInfo.Item2;
+
+                handle.Free();
+
+                IedClientError clientError = (IedClientError)err;
+
+                handler(invokeId, handlerParameter, clientError, (ControlActionType) type, success);
+            }
+
+
+            /// <summary>
+            /// Operate the control with the specified control value.
+            /// </summary>
+            /// <param name='ctlVal'>the new value of the control</param>
+            /// <param name="handler">Callback function to handle the received response or service timeout</param>
+            /// <param name="parameter">User provided callback parameter. Will be passed to the callback function</param>
+            /// <returns>the invoke ID of the sent request</returns>
+            /// <exception cref="IedConnectionException">This exception is thrown if there is a connection or service error</exception>
+            public UInt32 OperateAsync (bool ctlVal, ControlActionHandler handler, object parameter)
+            {
+                return OperateAsync (ctlVal, 0, handler, parameter);
+            }
+                
+            /// <summary>
+            /// Operate the control with the specified control value (time activated control).
+            /// </summary>
+            /// <param name='ctlVal'>the new value of the control</param>
+            /// <param name='operTime'>the time when the operation will be executed</param>
+            /// <param name="handler">Callback function to handle the received response or service timeout</param>
+            /// <param name="parameter">User provided callback parameter. Will be passed to the callback function</param>
+            /// <returns>the invoke ID of the sent request</returns>
+            /// <exception cref="IedConnectionException">This exception is thrown if there is a connection or service error</exception>
+            public UInt32 OperateAsync (bool ctlVal, UInt64 operTime, ControlActionHandler handler, object parameter)
+            {
+                MmsValue value = new MmsValue(ctlVal);
+
+                return OperateAsync (value, operTime, handler, parameter);
+            }
+                
+            /// <summary>
+            /// Operate the control with the specified control value.
+            /// </summary>
+            /// <param name='ctlVal'>the new value of the control</param>
+            /// <param name="handler">Callback function to handle the received response or service timeout</param>
+            /// <param name="parameter">User provided callback parameter. Will be passed to the callback function</param>
+            /// <returns>the invoke ID of the sent request</returns>
+            /// <exception cref="IedConnectionException">This exception is thrown if there is a connection or service error</exception>
+            public UInt32 OperateAsync (float ctlVal, ControlActionHandler handler, object parameter)
+            {
+                return OperateAsync (ctlVal, 0, handler, parameter);
+            }
+                
+            /// <summary>
+            /// Operate the control with the specified control value (time activated control).
+            /// </summary>
+            /// <param name='ctlVal'>the new value of the control</param>
+            /// <param name='operTime'>the time when the operation will be executed</param>
+            /// <param name="handler">Callback function to handle the received response or service timeout</param>
+            /// <param name="parameter">User provided callback parameter. Will be passed to the callback function</param>
+            /// <returns>the invoke ID of the sent request</returns>
+            /// <exception cref="IedConnectionException">This exception is thrown if there is a connection or service error</exception>
+            public UInt32 OperateAsync (float ctlVal, UInt64 operTime, ControlActionHandler handler, object parameter)
+            {
+                MmsValue value = new MmsValue(ctlVal);
+
+                return OperateAsync (value, operTime, handler, parameter);
+            }
+                
+            /// <summary>
+            /// Operate the control with the specified control value.
+            /// </summary>
+            /// <param name='ctlVal'>the new value of the control</param>
+            /// <param name="handler">Callback function to handle the received response or service timeout</param>
+            /// <param name="parameter">User provided callback parameter. Will be passed to the callback function</param>
+            /// <returns>the invoke ID of the sent request</returns>
+            /// <exception cref="IedConnectionException">This exception is thrown if there is a connection or service error</exception>
+            public UInt32 OperateAsync (int ctlVal, ControlActionHandler handler, object parameter)
+            {
+                return OperateAsync (ctlVal, 0, handler, parameter);
+            }
+
+            /// <summary>
+            /// Operate the control with the specified control value (time activated control).
+            /// </summary>
+            /// <param name='ctlVal'>the new value of the control</param>
+            /// <param name='operTime'>the time when the operation will be executed</param>
+            /// <param name="handler">Callback function to handle the received response or service timeout</param>
+            /// <param name="parameter">User provided callback parameter. Will be passed to the callback function</param>
+            /// <returns>the invoke ID of the sent request</returns>
+            /// <exception cref="IedConnectionException">This exception is thrown if there is a connection or service error</exception>
+            public UInt32 OperateAsync (int ctlVal, UInt64 operTime, ControlActionHandler handler, object parameter)
+            {
+                return OperateAsync (ctlVal, operTime, handler, parameter);
+            }
+
+            /// <summary>
+            /// Operate the control with the specified control value.
+            /// </summary>
+            /// <param name='ctlVal'>the new value of the control</param>
+            /// <param name="handler">Callback function to handle the received response or service timeout</param>
+            /// <param name="parameter">User provided callback parameter. Will be passed to the callback function</param>
+            /// <returns>the invoke ID of the sent request</returns>
+            /// <exception cref="IedConnectionException">This exception is thrown if there is a connection or service error</exception>
+            public UInt32 OperateAsync (MmsValue ctlVal, ControlActionHandler handler, object parameter)
+            {
+                return OperateAsync (ctlVal, 0, handler, parameter);
+            }
+
+            /// <summary>
+            /// Operate the control with the specified control value (time activated control).
+            /// </summary>
+            /// <param name='ctlVal'>the new value of the control</param>
+            /// <param name='operTime'>the time when the operation will be executed</param>
+            /// <param name="handler">Callback function to handle the received response or service timeout</param>
+            /// <param name="parameter">User provided callback parameter. Will be passed to the callback function</param>
+            /// <returns>the invoke ID of the sent request</returns>
+            /// <exception cref="IedConnectionException">This exception is thrown if there is a connection or service error</exception>
+            public UInt32 OperateAsync (MmsValue ctlVal, UInt64 operTime, ControlActionHandler handler, object parameter)
+            {
+                int error;
+
+                Tuple<ControlActionHandler, object> callbackInfo = Tuple.Create(handler, parameter);
+
+                GCHandle handle = GCHandle.Alloc(callbackInfo);
+
+                if (internalOperateHandler == null)
+                    internalOperateHandler = new ControlObjectClient_ControlActionHandler(nativeOperateHandler);
+
+                UInt32 invokeId = ControlObjectClient_operateAsync(self, out error, ctlVal.valueReference, operTime, internalOperateHandler, GCHandle.ToIntPtr(handle));
+
+                if (error != 0)
+                {
+                    handle.Free();
+                    throw new IedConnectionException("Operate failed", error);
+                }
+
+                return invokeId;
+            }
 
             /// <summary>
             /// Select the control object.
@@ -306,20 +509,46 @@ namespace IEC61850
             /// <returns>true when the selection has been successful, false otherwise</returns>
             public bool Select ()
             {
-                return ControlObjectClient_select(controlObject);
+                return ControlObjectClient_select(self);
             }
 
+            /// <summary>
+            /// Select the control object.
+            /// </summary>
+            /// <param name="handler">Callback function to handle the received response or service timeout</param>
+            /// <param name="parameter">User provided callback parameter. Will be passed to the callback function</param>
+            /// <returns>the invoke ID of the sent request</returns>
+            /// <exception cref="IedConnectionException">This exception is thrown if there is a connection or service error</exception>
+            public UInt32 SelectAsync(ControlActionHandler handler, object parameter)
+            {
+                int error;
+
+                Tuple<ControlActionHandler, object> callbackInfo = Tuple.Create(handler, parameter);
+
+                GCHandle handle = GCHandle.Alloc(callbackInfo);
+
+                if (internalOperateHandler == null)
+                    internalOperateHandler = new ControlObjectClient_ControlActionHandler(nativeOperateHandler);
+
+                UInt32 invokeId = ControlObjectClient_selectAsync(self, out error, internalOperateHandler, GCHandle.ToIntPtr(handle));
+
+                if (error != 0)
+                {
+                    handle.Free();
+                    throw new IedConnectionException("Select failed", error);
+                }
+
+                return invokeId;
+            }
 
             /// <summary>
             /// Send a select with value command for generic MmsValue instances
             /// </summary>
-            /// <param name='ctlVal'>
-            /// the value to be checked.
-            /// </param>
+            /// <param name='ctlVal'>the value to be checked.</param>
             /// <returns>true when the selection has been successful, false otherwise</returns>
             public bool SelectWithValue (MmsValue ctlVal)
             {
-                return ControlObjectClient_selectWithValue(controlObject, ctlVal.valueReference);
+                return ControlObjectClient_selectWithValue(self, ctlVal.valueReference);
             }
 
             /// <summary>
@@ -359,12 +588,110 @@ namespace IEC61850
             }
 
             /// <summary>
+            /// Send a select with value command for boolean controls - asynchronous version
+            /// </summary>
+            /// <param name='ctlVal'>the value to be checked.</param>
+            /// <param name="handler">Callback function to handle the received response or service timeout</param>
+            /// <param name="parameter">User provided callback parameter. Will be passed to the callback function</param>
+            /// <returns>the invoke ID of the sent request</returns>
+            /// <exception cref="IedConnectionException">This exception is thrown if there is a connection or service error</exception>
+            public UInt32 SelectWithValueAsync (bool ctlVal, ControlActionHandler handler, object parameter)
+            {
+                return SelectWithValueAsync(new MmsValue(ctlVal), handler, parameter);
+            }
+
+            /// <summary>
+            /// Send a select with value command for integer controls - asynchronous version
+            /// </summary>
+            /// <param name='ctlVal'>the value to be checked.</param>
+            /// <param name="handler">Callback function to handle the received response or service timeout</param>
+            /// <param name="parameter">User provided callback parameter. Will be passed to the callback function</param>
+            /// <returns>the invoke ID of the sent request</returns>
+            /// <exception cref="IedConnectionException">This exception is thrown if there is a connection or service error</exception>
+            public UInt32 SelectWithValueAsync (int ctlVal, ControlActionHandler handler, object parameter)
+            {
+                return SelectWithValueAsync(new MmsValue(ctlVal), handler, parameter);
+            }
+
+            /// <summary>
+            /// Send a select with value command for float controls - asynchronous version
+            /// </summary>
+            /// <param name='ctlVal'>the value to be checked.</param>
+            /// <param name="handler">Callback function to handle the received response or service timeout</param>
+            /// <param name="parameter">User provided callback parameter. Will be passed to the callback function</param>
+            /// <returns>the invoke ID of the sent request</returns>
+            /// <exception cref="IedConnectionException">This exception is thrown if there is a connection or service error</exception>
+            public UInt32 SelectWithValueAsync (float ctlVal, ControlActionHandler handler, object parameter)
+            {
+                return SelectWithValueAsync(new MmsValue(ctlVal), handler, parameter);
+            }
+                
+            /// <summary>
+            /// Send a select with value command for generic MmsValue instances - asynchronous version
+            /// </summary>
+            /// <param name='ctlVal'>the value to be checked.</param>
+            /// <param name="handler">Callback function to handle the received response or service timeout</param>
+            /// <param name="parameter">User provided callback parameter. Will be passed to the callback function</param>
+            /// <returns>the invoke ID of the sent request</returns>
+            /// <exception cref="IedConnectionException">This exception is thrown if there is a connection or service error</exception>
+            public UInt32 SelectWithValueAsync (MmsValue ctlVal, ControlActionHandler handler, object parameter)
+            {
+                int error;
+
+                Tuple<ControlActionHandler, object> callbackInfo = Tuple.Create(handler, parameter);
+
+                GCHandle handle = GCHandle.Alloc(callbackInfo);
+
+                if (internalOperateHandler == null)
+                    internalOperateHandler = new ControlObjectClient_ControlActionHandler(nativeOperateHandler);
+
+                UInt32 invokeId = ControlObjectClient_selectWithValueAsync(self, out error, ctlVal.valueReference, internalOperateHandler, GCHandle.ToIntPtr(handle));
+
+                if (error != 0)
+                {
+                    handle.Free();
+                    throw new IedConnectionException("Select with value failed", error);
+                }
+
+                return invokeId;
+            }
+
+            /// <summary>
             /// Cancel a selection or time activated operation
             /// </summary>
             /// <returns>true when the cancelation has been successful, false otherwise</returns>
+            /// <param name="handler">Callback function to handle the received response or service timeout</param>
+            /// <param name="parameter">User provided callback parameter. Will be passed to the callback function</param>
+            /// <returns>the invoke ID of the sent request</returns>
+            /// <exception cref="IedConnectionException">This exception is thrown if there is a connection or service error</exception>
             public bool Cancel () 
             {
-                return ControlObjectClient_cancel(controlObject);
+                return ControlObjectClient_cancel(self);
+            }
+
+            /// <summary>
+            /// Cancel a selection or time activated operation
+            /// </summary>
+            public UInt32 CancelAsync(ControlActionHandler handler, object parameter)
+            {
+                int error;
+
+                Tuple<ControlActionHandler, object> callbackInfo = Tuple.Create(handler, parameter);
+
+                GCHandle handle = GCHandle.Alloc(callbackInfo);
+
+                if (internalOperateHandler == null)
+                    internalOperateHandler = new ControlObjectClient_ControlActionHandler(nativeOperateHandler);
+
+                UInt32 invokeId = ControlObjectClient_cancelAsync(self, out error, internalOperateHandler, GCHandle.ToIntPtr(handle));
+
+                if (error != 0)
+                {
+                    handle.Free();
+                    throw new IedConnectionException("Cancel failed", error);
+                }
+
+                return invokeId;
             }
 
             /// <summary>
@@ -373,7 +700,7 @@ namespace IEC61850
 			[Obsolete("use SetSynchroCheck instead")]
             public void EnableSynchroCheck ()
             {
-				ControlObjectClient_setSynchroCheck (controlObject, true);
+				ControlObjectClient_setSynchroCheck (self, true);
             }
 
             /// <summary>
@@ -382,7 +709,7 @@ namespace IEC61850
 			[Obsolete("use SetInterlockCheck instead")]
 			public void EnableInterlockCheck ()
             {
-				ControlObjectClient_setInterlockCheck (controlObject, true);
+				ControlObjectClient_setInterlockCheck (self, true);
             }
 
 			/// <summary>
@@ -390,7 +717,7 @@ namespace IEC61850
 			/// </summary>
 			public void SetInterlockCheck (bool value)
 			{
-				ControlObjectClient_setInterlockCheck (controlObject, value);
+				ControlObjectClient_setInterlockCheck (self, value);
 			}
 
 			/// <summary>
@@ -398,7 +725,7 @@ namespace IEC61850
 			/// </summary>
 			public void SetSynchroCheck (bool value)
 			{
-				ControlObjectClient_setSynchroCheck (controlObject, value);
+				ControlObjectClient_setSynchroCheck (self, value);
 			}
 
 			/// <summary>
@@ -406,7 +733,7 @@ namespace IEC61850
 			/// </summary>
 			public void SetTestMode (bool value)
 			{
-				ControlObjectClient_setTestMode (controlObject, value);
+				ControlObjectClient_setTestMode (self, value);
 			}
 
 			/// <summary>
@@ -417,7 +744,7 @@ namespace IEC61850
 			/// </returns>
 			public LastApplError GetLastApplError ()
 			{
-				LastApplErrorInternal lastApplError = ControlObjectClient_getLastApplError(controlObject);
+				LastApplErrorInternal lastApplError = ControlObjectClient_getLastApplError(self);
 
 				return new LastApplError(lastApplError);
 			}
@@ -438,9 +765,9 @@ namespace IEC61850
 			}
 
 			protected virtual void Dispose(bool disposing) {
-				if (this.controlObject != System.IntPtr.Zero) {
-					ControlObjectClient_destroy (controlObject);
-					this.controlObject = System.IntPtr.Zero;
+				if (this.self != System.IntPtr.Zero) {
+					ControlObjectClient_destroy (self);
+					this.self = System.IntPtr.Zero;
 				}
 			}
 

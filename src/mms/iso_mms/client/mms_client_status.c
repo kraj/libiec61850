@@ -1,7 +1,7 @@
 /*
  *  mms_client_status.c
  *
- *  Copyright 2013, 2014 Michael Zillgith
+ *  Copyright 2013-2018 Michael Zillgith
  *
  *  This file is part of libIEC61850.
  *
@@ -50,11 +50,12 @@ mmsClient_createStatusRequest(uint32_t invokeId, ByteBuffer* request, bool exten
 }
 
 bool
-mmsClient_parseStatusResponse(MmsConnection self, int* vmdLogicalStatus, int* vmdPhysicalStatus)
+mmsClient_parseStatusResponse(MmsConnection self, ByteBuffer* response, int bufPos, int* vmdLogicalStatus, int* vmdPhysicalStatus)
 {
-    uint8_t* buffer = self->lastResponse->buffer;
-    int maxBufPos = self->lastResponse->size;
-    int bufPos = self->lastResponseBufPos;
+    (void)self;
+
+    uint8_t* buffer = ByteBuffer_getBuffer(response);
+    int maxBufPos = ByteBuffer_getSize(response);
     int length;
 
     uint8_t tag = buffer[bufPos++];
@@ -69,12 +70,6 @@ mmsClient_parseStatusResponse(MmsConnection self, int* vmdLogicalStatus, int* vm
     if (bufPos < 0) goto exit_error;
 
     int endPos = bufPos + length;
-
-    if (endPos > maxBufPos) {
-        if (DEBUG_MMS_CLIENT)
-            printf("mmsClient_parseStatusResponse: message to short!\n");
-        goto exit_error;
-    }
 
     bool hasPhysicalStatus = false;
     bool hasLogicalStatus = false;
@@ -101,6 +96,8 @@ mmsClient_parseStatusResponse(MmsConnection self, int* vmdLogicalStatus, int* vm
             break;
         case 0x82: /* localDetail */
             bufPos += length;
+            break;
+        case 0x00: /* indefinite length end tag -> ignore */
             break;
         default:
             return false;

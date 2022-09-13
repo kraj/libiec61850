@@ -1,7 +1,7 @@
 /*
  *  iec61850_common.h
  *
- *  Copyright 2013 Michael Zillgith
+ *  Copyright 2013-2019 Michael Zillgith
  *
  *  This file is part of libIEC61850.
  *
@@ -31,11 +31,21 @@ extern "C" {
 
 #include "libiec61850_common_api.h"
 #include "logging_api.h"
+#include "linked_list.h"
 
 /**
  * @defgroup iec61850_common_api_group IEC 61850 API common parts
  */
 /**@{*/
+
+/** IEC 61850 edition 1 */
+#define IEC_61850_EDITION_1   0
+
+/** IEC 61850 edition 2 */
+#define IEC_61850_EDITION_2   1
+
+/** IEC 61850 edition 2.1 */
+#define IEC_61850_EDITION_2_1 2
 
 /** PhyComAddress type contains Ethernet address and VLAN attributes */
 typedef struct {
@@ -46,12 +56,44 @@ typedef struct {
 } PhyComAddress;
 
 /**
+ * \brief Control model (represented by "ctlModel" attribute)
+ */
+typedef enum {
+    /**
+     * No support for control functions. Control object only support status information.
+     */
+    CONTROL_MODEL_STATUS_ONLY = 0,
+
+    /**
+     * Direct control with normal security: Supports Operate, TimeActivatedOperate (optional),
+     * and Cancel (optional).
+     */
+    CONTROL_MODEL_DIRECT_NORMAL = 1,
+
+    /**
+     * Select before operate (SBO) with normal security: Supports Select, Operate, TimeActivatedOperate (optional),
+     * and Cancel (optional).
+     */
+    CONTROL_MODEL_SBO_NORMAL = 2,
+
+    /**
+     * Direct control with enhanced security (enhanced security includes the CommandTermination service)
+     */
+    CONTROL_MODEL_DIRECT_ENHANCED = 3,
+
+    /**
+     * Select before operate (SBO) with enhanced security (enhanced security includes the CommandTermination service)
+     */
+    CONTROL_MODEL_SBO_ENHANCED = 4
+} ControlModel;
+
+/**
  * @defgroup TRIGGER_OPTIONS Trigger options (bit values combinable)
  *
  * @{
  */
 
-/** Report will be triggerd when data changes */
+/** Report will be triggered when data changes */
 #define TRG_OPT_DATA_CHANGED 1
 
 /** Report will be triggered when quality changes */
@@ -65,7 +107,12 @@ typedef struct {
 
 /** Report will be triggered by GI (general interrogation) request */
 #define TRG_OPT_GI 16
+
+/** Report will be triggered only on rising edge (transient variable */
+#define TRG_OPT_TRANSIENT 128
 /** @} */
+
+
 
 /**
  * @defgroup REPORT_OPTIONS Report options (bit values combinable)
@@ -174,6 +221,21 @@ typedef enum {
 /** @} */
 
 /**
+ * @defgroup CONTROL_LAST_APPL_ERROR Definition for LastAppError error type - used in control models
+ *
+ * @{
+ */
+
+typedef enum {
+    CONTROL_ERROR_NO_ERROR = 0,
+    CONTROL_ERROR_UNKNOWN = 1,
+    CONTROL_ERROR_TIMEOUT_TEST = 2,
+    CONTROL_ERROR_OPERATOR_TEST = 3
+} ControlLastApplError;
+
+/** @} */
+
+/**
  * @defgroup FUNCTIONAL_CONSTRAINTS Definitions and functions related to functional constraints (FCs)
  *
  * @{
@@ -236,6 +298,8 @@ typedef enum eFunctionalConstraint {
     IEC61850_FC_BR = 16,
     /** Log control blocks */
     IEC61850_FC_LG = 17,
+    /** Goose control blocks */
+    IEC61850_FC_GO = 18,
 
     /** All FCs - wildcard value */
     IEC61850_FC_ALL = 99,
@@ -245,13 +309,13 @@ typedef enum eFunctionalConstraint {
 /**extern "C" {
  * \brief convert a function constraint to a static string
  */
-char*
+LIB61850_API char*
 FunctionalConstraint_toString(FunctionalConstraint fc);
 
 /**
  * \brief parse a string treated as a functional constraint representation
  */
-FunctionalConstraint
+LIB61850_API FunctionalConstraint
 FunctionalConstraint_fromString(const char* fcString);
 
 /** @} */
@@ -286,23 +350,28 @@ typedef uint16_t Validity;
 
 #define QUALITY_OPERATOR_BLOCKED  4096
 
-Validity
+#define QUALITY_DERIVED 8192
+
+LIB61850_API Validity
 Quality_getValidity(Quality* self);
 
-void
+LIB61850_API void
 Quality_setValidity(Quality* self, Validity validity);
 
-void
+LIB61850_API void
 Quality_setFlag(Quality* self, int flag);
 
-void
+LIB61850_API void
 Quality_unsetFlag(Quality* self, int flag);
 
-bool
+LIB61850_API bool
 Quality_isFlagSet(Quality* self, int flag);
 
-Quality
+LIB61850_API Quality
 Quality_fromMmsValue(const MmsValue* mmsValue);
+
+LIB61850_API MmsValue*
+Quality_toMmsValue(Quality* self, MmsValue* mmsValue);
 
 /** @} */
 
@@ -327,7 +396,7 @@ typedef enum {
  *
  * \return the corresponding Dbpos value
  */
-Dbpos
+LIB61850_API Dbpos
 Dbpos_fromMmsValue(const MmsValue* mmsValue);
 
 /**
@@ -338,7 +407,7 @@ Dbpos_fromMmsValue(const MmsValue* mmsValue);
  *
  * \return the corresponding MmsValue instance
  */
-MmsValue*
+LIB61850_API MmsValue*
 Dbpos_toMmsValue(MmsValue* mmsValue, Dbpos dbpos);
 
 /** @} */
@@ -353,43 +422,46 @@ typedef union {
     uint8_t val[8];
 } Timestamp;
 
-Timestamp*
+LIB61850_API Timestamp*
 Timestamp_create(void);
 
-Timestamp*
-Timestamp_createFromByteArray(uint8_t* byteArray);
+LIB61850_API Timestamp*
+Timestamp_createFromByteArray(const uint8_t* byteArray);
 
-void
+LIB61850_API void
 Timestamp_destroy(Timestamp* self);
 
-void
+LIB61850_API void
 Timestamp_clearFlags(Timestamp* self);
 
-uint32_t
+LIB61850_API uint32_t
 Timestamp_getTimeInSeconds(Timestamp* self);
 
-uint64_t
+LIB61850_API msSinceEpoch
 Timestamp_getTimeInMs(Timestamp* self);
 
-bool
+LIB61850_API nsSinceEpoch
+Timestamp_getTimeInNs(Timestamp* self);
+
+LIB61850_API bool
 Timestamp_isLeapSecondKnown(Timestamp* self);
 
-void
+LIB61850_API void
 Timestamp_setLeapSecondKnown(Timestamp* self, bool value);
 
-bool
+LIB61850_API bool
 Timestamp_hasClockFailure(Timestamp* self);
 
-void
+LIB61850_API void
 Timestamp_setClockFailure(Timestamp* self, bool value);
 
-bool
+LIB61850_API bool
 Timestamp_isClockNotSynchronized(Timestamp* self);
 
-void
+LIB61850_API void
 Timestamp_setClockNotSynchronized(Timestamp* self, bool value);
 
-int
+LIB61850_API int
 Timestamp_getSubsecondPrecision(Timestamp* self);
 
 /**
@@ -397,17 +469,45 @@ Timestamp_getSubsecondPrecision(Timestamp* self);
  *
  * \param subsecondPrecision the number of significant bits of the fractionOfSecond part of the time stamp
  */
-void
+LIB61850_API void
 Timestamp_setSubsecondPrecision(Timestamp* self, int subsecondPrecision);
 
-void
+/**
+ * \brief Set the time in seconds
+ *
+ * NOTE: the fractionOfSecond part is set to zero
+ * NOTE: the subSecondPrecision is not touched
+ *
+ * \param self the Timestamp instance
+ * \param secondsSinceEpoch the seconds since unix epoch (unix timestamp)
+ */
+LIB61850_API void
 Timestamp_setTimeInSeconds(Timestamp* self, uint32_t secondsSinceEpoch);
 
-void
-Timestamp_setTimeInMilliseconds(Timestamp* self, uint64_t millisSinceEpoch);
+/**
+ * \brief Set the time in milliseconds
+ *
+ * NOTE: the subSecondPrecision is not touched
+ *
+ * \param self the Timestamp instance
+ * \param msTime the milliseconds since unix epoch
+ */
+LIB61850_API void
+Timestamp_setTimeInMilliseconds(Timestamp* self, msSinceEpoch msTime);
 
-void
-Timestamp_setByMmsUtcTime(Timestamp* self, MmsValue* mmsValue);
+/**
+ * \brief Set the time in nanoseconds
+ *
+ * NOTE: the subSecondPrecision is not touched
+ *
+ * \param self the Timestamp instance
+ * \param msTime the nanoseconds since unix epoch
+ */
+LIB61850_API void
+Timestamp_setTimeInNanoseconds(Timestamp* self, nsSinceEpoch nsTime);
+
+LIB61850_API void
+Timestamp_setByMmsUtcTime(Timestamp* self, const MmsValue* mmsValue);
 
 /**
  * \brief Set an MmsValue instance of type UTCTime to the timestamp value
@@ -415,17 +515,27 @@ Timestamp_setByMmsUtcTime(Timestamp* self, MmsValue* mmsValue);
  * \param self the Timestamp instance
  * \param mmsValue the mmsValue instance, if NULL a new instance will be created
  */
-MmsValue*
+LIB61850_API MmsValue*
 Timestamp_toMmsValue(Timestamp* self, MmsValue* mmsValue);
+
+/**
+ * \brief Get the Timestamp value from an MmsValue instance of type MMS_UTC_TIME
+ *
+ * \param self the Timestamp instance or NULL to create a new instance
+ * \param mmsValue the mmsValue instance of type MMS_UTC_TIME
+ *
+ * \return the updated Timestamp value or NULL in case of an error
+ */
+LIB61850_API Timestamp*
+Timestamp_fromMmsValue(Timestamp* self, MmsValue* mmsValue);
 
 /**
  * \brief Get the version of the library as string
  *
- * \return the version of the library (e.g. "0.8.3")
+ * \return the version of the library (e.g. "1.2.2")
  */
-char*
+LIB61850_API char*
 LibIEC61850_getVersionString(void);
-
 
 /** @} */
 

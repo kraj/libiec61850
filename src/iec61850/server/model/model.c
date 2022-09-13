@@ -3,7 +3,7 @@
  *
  *  Copyright 2013 Michael Zillgith
  *
- *	This file is part of libIEC61850.
+ *  This file is part of libIEC61850.
  *
  *  libIEC61850 is free software: you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -23,6 +23,7 @@
 
 #include "iec61850_model.h"
 
+#include "stack_config.h"
 #include "libiec61850_platform_includes.h"
 
 static void
@@ -72,8 +73,6 @@ IedModel_setAttributeValuesToNull(IedModel* iedModel)
     }
 }
 
-
-
 int
 IedModel_getLogicalDeviceCount(IedModel* self)
 {
@@ -108,13 +107,16 @@ IedModel_lookupDataSet(IedModel* self, const char* dataSetReference  /* e.g. ied
 
 	int modelNameLen = strlen(self->name);
 
+	if (modelNameLen > 64)
+	    return NULL;
+
 	memcpy(domainName, self->name, modelNameLen);
 
 	while (dataSet != NULL) {
 
 	    domainName[modelNameLen] = 0;
 
-	    strncat(domainName, dataSet->logicalDeviceName, 64);
+	    StringUtils_appendString(domainName, 65, dataSet->logicalDeviceName);
 
 		if (strncmp(domainName, dataSetReference, ldNameLen) == 0) {
 			if (strcmp(dataSet->name, separator + 1) == 0) {
@@ -133,12 +135,11 @@ IedModel_getDevice(IedModel* self, const char* deviceName)
 {
     LogicalDevice* device = self->firstChild;
 
-    while (device != NULL) {
-
+    while (device)
+    {
         char domainName[65];
 
-        strncpy(domainName, self->name, 64);
-        strncat(domainName, device->name, 64);
+        StringUtils_concatString(domainName, 65, self->name, device->name);
 
         if (strcmp(domainName, deviceName) == 0)
             return device;
@@ -154,8 +155,8 @@ IedModel_getDeviceByInst(IedModel* self, const char* ldInst)
 {
     LogicalDevice* device = self->firstChild;
 
-    while (device != NULL) {
-
+    while (device)
+    {
       if (strcmp(device->name, ldInst) == 0)
           return device;
 
@@ -164,7 +165,6 @@ IedModel_getDeviceByInst(IedModel* self, const char* ldInst)
 
     return NULL;
 }
-
 
 LogicalDevice*
 IedModel_getDeviceByIndex(IedModel* self, int index)
@@ -296,19 +296,19 @@ IedModel_getModelNodeByObjectReference(IedModel* model, const char* objectRefere
 
     char objRef[130];
 
-    strncpy(objRef, objectReference, 129);
-    objRef[129] = 0;
+    StringUtils_copyStringMax(objRef, 130, objectReference);
 
     char* separator = strchr(objRef, '/');
 
-    if (separator == NULL)
-        return NULL;
-
-    *separator = 0;
+    if (separator != NULL)
+        *separator = 0;
 
     LogicalDevice* ld = IedModel_getDevice(model, objRef);
 
     if (ld == NULL) return NULL;
+
+    if ((separator == NULL) || (*(separator + 1) == 0))
+        return (ModelNode*) ld;
 
     return ModelNode_getChild((ModelNode*) ld, separator + 1);
 }
@@ -344,25 +344,35 @@ IedModel_getModelNodeByShortObjectReference(IedModel* model, const char* objectR
 
     char objRef[130];
 
-    strncpy(objRef, objectReference, 129);
-    objRef[129] = 0;
+    StringUtils_copyStringMax(objRef, 130, objectReference);
 
     char* separator = strchr(objRef, '/');
 
-    if (separator == NULL)
-        return NULL;
-
-    *separator = 0;
+    if (separator != NULL)
+        *separator = 0;
 
     char ldName[65];
-    strcpy(ldName, model->name);
-    strcat(ldName, objRef);
 
-    LogicalDevice* ld = IedModel_getDevice(model, ldName);
+    if (StringUtils_concatString(ldName, 65, model->name, objRef))
+    {
+        LogicalDevice* ld = IedModel_getDevice(model, ldName);
 
-    if (ld == NULL) return NULL;
+        if (ld == NULL) {
+            if (DEBUG_IED_SERVER) {
+                printf("IED_SERVER: LD (%s) not found\n", ldName);
+            }
 
-    return ModelNode_getChild((ModelNode*) ld, separator + 1);
+            return NULL;
+        }
+
+        if ((separator == NULL) || (*(separator + 1) == 0))
+            return (ModelNode*) ld;
+
+        return ModelNode_getChild((ModelNode*) ld, separator + 1);
+    }
+    else {
+        return NULL;
+    }
 }
 
 
@@ -425,7 +435,7 @@ LogicalNode_getDataSet(LogicalNode* self, const char* dataSetName)
 		goto exit_error;
 	}
 
-	StringUtils_createStringInBuffer(dsName, 3, self->name, "$", dataSetName);
+	StringUtils_createStringInBuffer(dsName, 66, 3, self->name, "$", dataSetName);
 
 	IedModel* iedModel = (IedModel*) ld->parent;
 
@@ -464,17 +474,15 @@ LogicalDevice_getLogicalNodeCount(LogicalDevice* logicalDevice)
 ModelNode*
 LogicalDevice_getChildByMmsVariableName(LogicalDevice* logicalDevice, const char* mmsVariableName)
 {
-
-
-	char fcString[3];
-	char nameRef[65];
-
 	const char* separator = strchr(mmsVariableName,'$');
 
 	if (separator == NULL)
 		return NULL;
 
 	if (strlen(separator) > 4) {
+	    char fcString[3];
+	    char nameRef[65];
+
 		fcString[0] = separator[1];
 		fcString[1] = separator[2];
 		fcString[2] = 0;
@@ -510,14 +518,20 @@ LogicalDevice_getChildByMmsVariableName(LogicalDevice* logicalDevice, const char
 }
 
 static int
-createObjectReference(ModelNode* node, char* objectReference)
+createObjectReference(ModelNode* node, char* objectReference, int bufSize, bool withoutIedName)
 {
     int bufPos;
 
     if (node->modelType != LogicalNodeModelType) {
-        bufPos = createObjectReference(node->parent, objectReference);
+        bufPos = createObjectReference(node->parent, objectReference, bufSize, withoutIedName);
 
-        objectReference[bufPos++] = '.';
+        if (bufPos == -1)
+            return -1;
+
+        if (bufPos < bufSize)
+            objectReference[bufPos++] = '.';
+        else
+            return -1;
     }
     else {
         LogicalNode* lNode = (LogicalNode*) node;
@@ -528,36 +542,69 @@ createObjectReference(ModelNode* node, char* objectReference)
 
         bufPos = 0;
 
-        int nameLength = strlen (iedModel->name) + strlen(lDevice->name);
+        if (withoutIedName) {
+            objectReference[0] = 0;
+            StringUtils_appendString(objectReference, 65, lDevice->name);
+        }
+        else {
+            StringUtils_concatString(objectReference, 65, iedModel->name, lDevice->name);
+        }
 
-        strncpy(objectReference, iedModel->name, 64);
-        strncat(objectReference, lDevice->name, 64);
+        bufPos += strlen(objectReference);
 
-        bufPos += nameLength;
-
-        objectReference[bufPos++] = '/';
+        if (bufPos < bufSize)
+            objectReference[bufPos++] = '/';
+        else
+            return -1;
     }
 
     /* append own name */
     int nameLength = strlen(node->name);
 
-    int i;
-    for (i = 0; i < nameLength; i++) {
-        objectReference[bufPos++] = node->name[i];
-    }
+    if (bufPos + nameLength < bufSize) {
+        int i;
+        for (i = 0; i < nameLength; i++) {
+            objectReference[bufPos++] = node->name[i];
+        }
 
-    return bufPos;
+        return bufPos;
+    }
+    else {
+        return -1;
+    }
 }
 
 char*
 ModelNode_getObjectReference(ModelNode* node, char* objectReference)
 {
-    if (objectReference == NULL)
+    return ModelNode_getObjectReferenceEx(node, objectReference, false);
+}
+
+char*
+ModelNode_getObjectReferenceEx(ModelNode* node, char* objectReference, bool withoutIedName)
+{
+    bool allocated = false;
+
+    if (objectReference == NULL) {
         objectReference = (char*) GLOBAL_MALLOC(130);
+        allocated = true;
+    }
 
-    int bufPos = createObjectReference(node, objectReference);
+    if (objectReference) {
+        int bufPos = createObjectReference(node, objectReference, 130, withoutIedName);
 
-    objectReference[bufPos] = 0;
+        if (bufPos == -1) {
+            if (allocated)
+                GLOBAL_FREEMEM(objectReference);
+
+            return NULL;
+        }
+
+        if (bufPos < 130)
+            objectReference[bufPos] = 0;
+        else
+            objectReference[129] = 0;
+    }
 
     return objectReference;
 }
@@ -576,11 +623,10 @@ ModelNode_getChildCount(ModelNode* modelNode) {
 	return childCount;
 }
 
-
 ModelNode*
 ModelNode_getChild(ModelNode* self, const char* name)
 {
-    // check for separator
+   /* check for separator */
    const char* separator = strchr(name, '.');
 
    int nameElementLength = 0;
@@ -598,6 +644,7 @@ ModelNode_getChild(ModelNode* self, const char* name)
        int nodeNameLen = strlen(nextNode->name);
 
        if (nodeNameLen == nameElementLength) {
+
            if (memcmp(nextNode->name, name, nodeNameLen) == 0) {
                matchingNode = nextNode;
                break;
@@ -617,7 +664,7 @@ ModelNode_getChild(ModelNode* self, const char* name)
 ModelNode*
 ModelNode_getChildWithFc(ModelNode* self, const char* name, FunctionalConstraint fc)
 {
-    // check for separator
+   /* check for separator */
    const char* separator = strchr(name, '.');
 
    int nameElementLength = 0;
@@ -680,6 +727,37 @@ ModelNodeType
 ModelNode_getType(ModelNode* self)
 {
     return self->modelType;
+}
+
+const char*
+ModelNode_getName(ModelNode* self)
+{
+    return self->name;
+}
+
+ModelNode*
+ModelNode_getParent(ModelNode* self)
+{
+    return self->parent;
+}
+
+LinkedList
+ModelNode_getChildren(ModelNode* self)
+{
+    LinkedList childNodes = NULL;
+
+    if (self->firstChild)
+        childNodes = LinkedList_create();
+
+    ModelNode* childNode = self->firstChild;
+
+    while (childNode) {
+        LinkedList_add(childNodes, childNode);
+
+        childNode = childNode->sibling;
+    }
+
+    return childNodes;
 }
 
 LogicalNode*

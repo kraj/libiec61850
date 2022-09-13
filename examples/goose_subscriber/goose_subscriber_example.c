@@ -9,6 +9,7 @@
 #include "goose_receiver.h"
 #include "goose_subscriber.h"
 #include "hal_thread.h"
+#include "linked_list.h"
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -16,12 +17,13 @@
 
 static int running = 1;
 
-void sigint_handler(int signalId)
+static void
+sigint_handler(int signalId)
 {
     running = 0;
 }
 
-void
+static void
 gooseListener(GooseSubscriber subscriber, void* parameter)
 {
     printf("GOOSE event:\n");
@@ -32,6 +34,7 @@ gooseListener(GooseSubscriber subscriber, void* parameter)
     uint64_t timestamp = GooseSubscriber_getTimestamp(subscriber);
 
     printf("  timestamp: %u.%u\n", (uint32_t) (timestamp / 1000), (uint32_t) (timestamp % 1000));
+    printf("  message is %s\n", GooseSubscriber_isValid(subscriber) ? "valid" : "INVALID");
 
     MmsValue* values = GooseSubscriber_getDataSetValues(subscriber);
 
@@ -39,7 +42,7 @@ gooseListener(GooseSubscriber subscriber, void* parameter)
 
     MmsValue_printToBuffer(values, buffer, 1024);
 
-    printf("%s\n", buffer);
+    printf("  allData: %s\n", buffer);
 }
 
 int
@@ -47,17 +50,19 @@ main(int argc, char** argv)
 {
     GooseReceiver receiver = GooseReceiver_create();
 
-     if (argc > 1) {
-         printf("Set interface id: %s\n", argv[1]);
-         GooseReceiver_setInterfaceId(receiver, argv[1]);
-     }
-     else {
-         printf("Using interface eth0\n");
-         GooseReceiver_setInterfaceId(receiver, "eth0");
-     }
+    if (argc > 1) {
+        printf("Set interface id: %s\n", argv[1]);
+        GooseReceiver_setInterfaceId(receiver, argv[1]);
+    }
+    else {
+        printf("Using interface eth0\n");
+        GooseReceiver_setInterfaceId(receiver, "eth0");
+    }
 
     GooseSubscriber subscriber = GooseSubscriber_create("simpleIOGenericIO/LLN0$GO$gcbAnalogValues", NULL);
 
+    uint8_t dstMac[6] = {0x01,0x0c,0xcd,0x01,0x00,0x01};
+    GooseSubscriber_setDstMac(subscriber, dstMac);
     GooseSubscriber_setAppId(subscriber, 1000);
 
     GooseSubscriber_setListener(subscriber, gooseListener, NULL);
@@ -66,13 +71,20 @@ main(int argc, char** argv)
 
     GooseReceiver_start(receiver);
 
-    signal(SIGINT, sigint_handler);
+    if (GooseReceiver_isRunning(receiver)) {
+        signal(SIGINT, sigint_handler);
 
-    while (running) {
-        Thread_sleep(100);
+        while (running) {
+            Thread_sleep(100);
+        }
+    }
+    else {
+        printf("Failed to start GOOSE subscriber. Reason can be that the Ethernet interface doesn't exist or root permission are required.\n");
     }
 
     GooseReceiver_stop(receiver);
 
     GooseReceiver_destroy(receiver);
+
+    return 0;
 }

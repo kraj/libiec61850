@@ -40,7 +40,17 @@ extern "C" {
  * @{
  */
 
-IedModel*
+/**
+ * \brief Create a data model from simple text configuration file
+ *
+ * \param filename name or path of the configuraton file
+ *
+ * \return the data model to be used by \ref IedServer
+ */
+LIB61850_API IedModel*
+ConfigFileParser_createModelFromConfigFileEx(const char* filename);
+
+LIB61850_API IedModel*
 ConfigFileParser_createModelFromConfigFile(FileHandle fileHandle);
 
 /**@}*/

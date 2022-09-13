@@ -1,7 +1,7 @@
 /*
  *  mms_client_files.c
  *
- *  Copyright 2013 - 2016 Michael Zillgith
+ *  Copyright 2013 - 2022 Michael Zillgith
  *
  *  This file is part of libIEC61850.
  *
@@ -30,6 +30,7 @@
 #include "mms_client_internal.h"
 #include "ber_encoder.h"
 #include "ber_decode.h"
+#include "ber_integer.h"
 #include "conversions.h"
 
 #if (MMS_OBTAIN_FILE_SERVICE == 1)
@@ -98,8 +99,6 @@ mmsClient_handleFileOpenRequest(
 
         if (bufPos < 0) goto exit_reject_invalid_pdu;
 
-        if (bufPos + length > maxBufPos) goto exit_reject_invalid_pdu;
-
         switch(tag) {
         case 0xa0: /* filename */
 
@@ -115,6 +114,9 @@ mmsClient_handleFileOpenRequest(
             bufPos += length;
             break;
 
+        case 0x00: /* indefinite length end tag -> ignore */
+            break;
+
         default: /* unrecognized parameter */
             bufPos += length;
             goto exit_reject_invalid_pdu;
@@ -126,12 +128,25 @@ mmsClient_handleFileOpenRequest(
         MmsFileReadStateMachine* frsm = getFreeFrsm(connection);
 
         if (frsm != NULL) {
+
+            MmsOutstandingCall obtainFileCall = mmsClient_getMatchingObtainFileRequest(connection, filename);
+
+            if (obtainFileCall) {
+
+                if (DEBUG_MMS_CLIENT)
+                    printf("MMS_CLIENT: file open is matching obtain file request for file %s\n", filename);
+
+                obtainFileCall->timeout = Hal_getTimeInMs() + connection->requestTimeout;
+            }
+
             FileHandle fileHandle = mmsMsg_openFile(MmsConnection_getFilestoreBasepath(connection), filename, false);
 
             if (fileHandle != NULL) {
+
                 frsm->fileHandle = fileHandle;
                 frsm->readPosition = filePosition;
                 frsm->frsmId = getNextFrsmId(connection);
+                frsm->obtainRequest = obtainFileCall;
 
                 mmsMsg_createFileOpenResponse(MmsConnection_getFilestoreBasepath(connection),
                         invokeId, response, filename, frsm);
@@ -171,8 +186,12 @@ mmsClient_handleFileReadRequest(
 
     MmsFileReadStateMachine* frsm = getFrsm(connection, frsmId);
 
-    if (frsm != NULL)
+    if (frsm) {
+        if (frsm->obtainRequest)
+            frsm->obtainRequest->timeout = Hal_getTimeInMs() + connection->requestTimeout;
+
         mmsMsg_createFileReadResponse(connection->parameters.maxPduSize, invokeId, response, frsm);
+    }
     else
         mmsMsg_createServiceErrorPdu(invokeId, response, MMS_ERROR_FILE_OTHER);
 }
@@ -188,15 +207,40 @@ mmsClient_handleFileCloseRequest(
 
     MmsFileReadStateMachine* frsm = getFrsm(connection, frsmId);
 
-    FileSystem_closeFile(frsm->fileHandle);
-    frsm->fileHandle = NULL;
-    frsm->frsmId = 0;
+    if (frsm) {
+        if (frsm->obtainRequest)
+            frsm->obtainRequest->timeout = Hal_getTimeInMs() + connection->requestTimeout;
 
-    mmsMsg_createFileCloseResponse(invokeId, response);
+        if(frsm->fileHandle){
+            FileSystem_closeFile(frsm->fileHandle);
+            frsm->fileHandle = NULL;
+        }
+        frsm->frsmId = 0;
+        frsm->obtainRequest = NULL;
+
+        mmsMsg_createFileCloseResponse(invokeId, response);
+    }
+    else
+        mmsMsg_createServiceErrorPdu(invokeId, response, MMS_ERROR_FILE_OTHER);
+}
+
+void
+mmsClient_closeOutstandingOpenFiles(MmsConnection connection)
+{
+    int i;
+
+    for (i = 0; i < CONFIG_MMS_MAX_NUMBER_OF_OPEN_FILES_PER_CONNECTION; i++) {
+        if (connection->frsms[i].fileHandle != NULL) {
+            FileSystem_closeFile(connection->frsms[i].fileHandle);
+            connection->frsms[i].fileHandle = NULL;
+        }
+    }
 }
 
 
 #endif /* (MMS_OBTAIN_FILE_SERVICE == 1) */
+
+#if (MMS_FILE_SERVICE == 1)
 
 void
 mmsClient_createFileOpenRequest(uint32_t invokeId, ByteBuffer* request, const char* fileName, uint32_t initialPosition)
@@ -442,6 +486,8 @@ parseFileAttributes(uint8_t* buffer, int bufPos, int maxBufPos, uint32_t* fileSi
                 }
             }
             break;
+        case 0x00: /* indefinite length end tag -> ignore */
+            break;
         default:
             return false;
         }
@@ -453,7 +499,7 @@ parseFileAttributes(uint8_t* buffer, int bufPos, int maxBufPos, uint32_t* fileSi
 }
 
 static bool
-parseDirectoryEntry(uint8_t* buffer, int bufPos, int maxBufPos, MmsFileDirectoryHandler handler, void* handlerParameter)
+parseDirectoryEntry(uint8_t* buffer, int bufPos, int maxBufPos, uint32_t invokeId, MmsConnection_FileDirectoryHandler handler, void* parameter)
 {
     char fileNameMemory[400];
     char* filename = NULL;
@@ -467,7 +513,7 @@ parseDirectoryEntry(uint8_t* buffer, int bufPos, int maxBufPos, MmsFileDirectory
         bufPos = BerDecoder_decodeLength(buffer, &length, bufPos, maxBufPos);
         if (bufPos < 0) {
             if (DEBUG_MMS_CLIENT)
-                printf("MMS_CLIENT: message contains unknown tag!\n");
+                printf("MMS_CLIENT: invalid length field\n");
             return false;
         }
 
@@ -481,7 +527,7 @@ parseDirectoryEntry(uint8_t* buffer, int bufPos, int maxBufPos, MmsFileDirectory
             bufPos = BerDecoder_decodeLength(buffer, &length, bufPos, maxBufPos);
             if (bufPos < 0) {
                 if (DEBUG_MMS_CLIENT)
-                    printf("MMS_CLIENT: message contains unknown tag!\n");
+                    printf("MMS_CLIENT: invalid length field\n");
                 return false;
             }
 
@@ -495,6 +541,8 @@ parseDirectoryEntry(uint8_t* buffer, int bufPos, int maxBufPos, MmsFileDirectory
                 return false;
             bufPos += length;
             break;
+        case 0x00: /* indefinite length end tag -> ignore */
+            break;
         default:
             bufPos += length;
             if (DEBUG_MMS_CLIENT)
@@ -505,7 +553,7 @@ parseDirectoryEntry(uint8_t* buffer, int bufPos, int maxBufPos, MmsFileDirectory
     }
 
     if (filename != NULL)
-        handler(handlerParameter, filename, fileSize, lastModified);
+        handler(invokeId, parameter, MMS_ERROR_NONE, filename, fileSize, lastModified, true);
     else
         return false;
 
@@ -513,8 +561,8 @@ parseDirectoryEntry(uint8_t* buffer, int bufPos, int maxBufPos, MmsFileDirectory
 }
 
 static bool
-parseListOfDirectoryEntries(uint8_t* buffer, int bufPos, int maxBufPos,
-        MmsFileDirectoryHandler handler, void* handlerParameter)
+parseListOfDirectoryEntries(uint8_t* buffer, int bufPos, int maxBufPos, uint32_t invokeId,
+        MmsConnection_FileDirectoryHandler handler, void* parameter)
 {
     uint8_t tag = buffer[bufPos++];
 
@@ -524,15 +572,10 @@ parseListOfDirectoryEntries(uint8_t* buffer, int bufPos, int maxBufPos,
     int length;
 
     bufPos = BerDecoder_decodeLength(buffer, &length, bufPos, maxBufPos);
+
     if (bufPos < 0) return false;
 
     int endPos = bufPos + length;
-
-    if (endPos > maxBufPos) {
-         if (DEBUG_MMS_CLIENT)
-             printf("parseListOfDirectoryEntries: message to short!\n");
-         return false;
-    }
 
     while (bufPos < endPos) {
         tag = buffer[bufPos++];
@@ -542,8 +585,10 @@ parseListOfDirectoryEntries(uint8_t* buffer, int bufPos, int maxBufPos,
 
         switch (tag) {
         case 0x30: /* Sequence */
-            parseDirectoryEntry(buffer, bufPos, bufPos + length, handler, handlerParameter);
+            parseDirectoryEntry(buffer, bufPos, bufPos + length, invokeId, handler, parameter);
             bufPos += length;
+            break;
+        case 0x00: /* indefinite length end tag -> ignore */
             break;
         default:
             bufPos += length;
@@ -558,12 +603,10 @@ parseListOfDirectoryEntries(uint8_t* buffer, int bufPos, int maxBufPos,
 
 
 bool
-mmsClient_parseFileDirectoryResponse(MmsConnection self, MmsFileDirectoryHandler handler, void* handlerParameter,
-        bool* moreFollows)
+mmsClient_parseFileDirectoryResponse(ByteBuffer* response, int bufPos, uint32_t invokeId, MmsConnection_FileDirectoryHandler handler, void* parameter)
 {
-    uint8_t* buffer = self->lastResponse->buffer;
-    int maxBufPos = self->lastResponse->size;
-    int bufPos = self->lastResponseBufPos;
+    uint8_t* buffer = response->buffer;
+    int maxBufPos = response->size;
     int length;
 
     uint8_t tag = buffer[bufPos++];
@@ -587,13 +630,7 @@ mmsClient_parseFileDirectoryResponse(MmsConnection self, MmsFileDirectoryHandler
 
     int endPos = bufPos + length;
 
-    if (endPos > maxBufPos) {
-        if (DEBUG_MMS_CLIENT)
-            printf("mmsClient_parseFileDirectoryResponse: message to short (length:%i maxBufPos:%i)!\n", length, maxBufPos);
-        return false;
-    }
-
-    *moreFollows = false;
+    bool moreFollows = false;
 
     while (bufPos < endPos) {
         tag = buffer[bufPos++];
@@ -603,13 +640,15 @@ mmsClient_parseFileDirectoryResponse(MmsConnection self, MmsFileDirectoryHandler
 
         switch (tag) {
         case 0xa0: /* listOfDirectoryEntries */
-            parseListOfDirectoryEntries(buffer, bufPos, bufPos + length, handler, handlerParameter);
+            parseListOfDirectoryEntries(buffer, bufPos, bufPos + length, invokeId, handler, parameter);
 
             bufPos += length;
             break;
         case 0x81: /* moreFollows */
-            *moreFollows = BerDecoder_decodeBoolean(buffer, bufPos);
+            moreFollows = BerDecoder_decodeBoolean(buffer, bufPos);
             bufPos += length;
+            break;
+        case 0x00: /* indefinite length end tag -> ignore */
             break;
         default:
             bufPos += length;
@@ -618,6 +657,8 @@ mmsClient_parseFileDirectoryResponse(MmsConnection self, MmsFileDirectoryHandler
             break;
         }
     }
+
+    handler(invokeId, parameter, MMS_ERROR_NONE, NULL, 0, 0, moreFollows);
 
     return true;
 }
@@ -630,7 +671,7 @@ mmsMsg_parseFileOpenResponse(uint8_t* buffer, int bufPos, int maxBufPos, int32_t
     uint8_t tag = buffer[bufPos++];
 
     if (tag != 0xbf) {
-        //if (DEBUG_MMS_CLIENT)
+        if (DEBUG_MMS_CLIENT)
             printf("MMS: mmsClient_parseFileOpenResponse: unknown tag %02x\n", tag);
         return false;
     }
@@ -638,7 +679,7 @@ mmsMsg_parseFileOpenResponse(uint8_t* buffer, int bufPos, int maxBufPos, int32_t
     tag = buffer[bufPos++];
 
     if (tag != 0x48) {
-        //if (DEBUG_MMS_CLIENT)
+        if (DEBUG_MMS_CLIENT)
             printf("MMS_CLIENT: mmsClient_parseFileOpenResponse: unknown tag %02x\n", tag);
         return false;
     }
@@ -648,12 +689,6 @@ mmsMsg_parseFileOpenResponse(uint8_t* buffer, int bufPos, int maxBufPos, int32_t
         return false;
 
     int endPos = bufPos + length;
-
-    if (endPos > maxBufPos) {
-        if (DEBUG_MMS_CLIENT)
-            printf("MMS_CLIENT/SERVER: mmsClient_parseFileOpenResponse: message to short (length:%i maxBufPos:%i)!\n", length, maxBufPos);
-        return false;
-    }
 
     while (bufPos < endPos) {
         tag = buffer[bufPos++];
@@ -673,6 +708,8 @@ mmsMsg_parseFileOpenResponse(uint8_t* buffer, int bufPos, int maxBufPos, int32_t
                 return false;
             bufPos += length;
             break;
+        case 0x00: /* indefinite length end tag -> ignore */
+            break;
         default:
             bufPos += length;
             if (DEBUG_MMS_CLIENT)
@@ -684,13 +721,16 @@ mmsMsg_parseFileOpenResponse(uint8_t* buffer, int bufPos, int maxBufPos, int32_t
     return true;
 }
 
-
 bool
-mmsMsg_parseFileReadResponse(uint8_t* buffer, int bufPos, int maxBufPos, int frsmId, bool* moreFollows, MmsFileReadHandler handler, void* handlerParameter)
+mmsMsg_parseFileReadResponse(uint8_t* buffer, int bufPos, int maxBufPos, uint32_t invokeId, int frsmId, bool* moreFollows, MmsConnection_FileReadHandler handler, void* handlerParameter)
 {
     int length;
+    uint8_t* data = NULL;
+    int dataLen = 0;
+
 
     uint8_t tag = buffer[bufPos++];
+
 
     if (tag != 0xbf) {
         if (DEBUG_MMS_CLIENT)
@@ -714,28 +754,29 @@ mmsMsg_parseFileReadResponse(uint8_t* buffer, int bufPos, int maxBufPos, int frs
 
     int endPos = bufPos + length;
 
-    if (endPos > maxBufPos) {
-        if (DEBUG_MMS_CLIENT)
-            printf("MMS_CLIENT/SERVER: mmsClient_parseFileReadResponse: message to short (length:%i maxBufPos:%i)!\n", length, maxBufPos);
-        return false;
-    }
-
     while (bufPos < endPos) {
         tag = buffer[bufPos++];
+
         bufPos = BerDecoder_decodeLength(buffer, &length, bufPos, maxBufPos);
         if (bufPos < 0)
             return false;
 
         switch (tag) {
         case 0x80: /* fileData */
-            handler(handlerParameter, frsmId, buffer + bufPos, length);
+            data = buffer + bufPos;
+            dataLen = length;
 
             bufPos += length;
             break;
+
         case 0x81: /* moreFollows */
             *moreFollows = BerDecoder_decodeBoolean(buffer, bufPos);
             bufPos += length;
             break;
+
+        case 0x00: /* indefinite length end tag -> ignore */
+            break;
+
         default:
             bufPos += length;
             if (DEBUG_MMS_CLIENT)
@@ -744,6 +785,8 @@ mmsMsg_parseFileReadResponse(uint8_t* buffer, int bufPos, int maxBufPos, int frs
             return false;
         }
     }
+
+    handler(invokeId, handlerParameter, MMS_ERROR_NONE, frsmId, data, dataLen, *moreFollows);
 
     return true;
 }
@@ -777,4 +820,4 @@ mmsClient_createFileCloseRequest(uint32_t invokeId, ByteBuffer* request, int32_t
     request->size = bufPos;
 }
 
-
+#endif /* (MMS_FILE_SERVICE == 1) */

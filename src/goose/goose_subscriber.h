@@ -1,7 +1,7 @@
 /*
  *  goose_subscriber.h
  *
- *  Copyright 2013, 2014 Michael Zillgith
+ *  Copyright 2013-2021 Michael Zillgith
  *
  *  This file is part of libIEC61850.
  *
@@ -37,6 +37,18 @@ extern "C" {
 
 #include "mms_value.h"
 
+typedef enum
+{
+    GOOSE_PARSE_ERROR_NO_ERROR = 0,
+    GOOSE_PARSE_ERROR_UNKNOWN_TAG,
+    GOOSE_PARSE_ERROR_TAGDECODE,
+    GOOSE_PARSE_ERROR_SUBLEVEL,
+    GOOSE_PARSE_ERROR_OVERFLOW,
+    GOOSE_PARSE_ERROR_UNDERFLOW,
+    GOOSE_PARSE_ERROR_TYPE_MISMATCH,
+    GOOSE_PARSE_ERROR_LENGTH_MISMATCH,
+} GooseParseError;
+
 typedef struct sGooseSubscriber* GooseSubscriber;
 
 /**
@@ -67,11 +79,43 @@ typedef void (*GooseListener)(GooseSubscriber subscriber, void* parameter);
  *        GOOSE publisher uses.
  * \param dataSetValues the MmsValue object where the data set values will be written or NULL.
  */
-GooseSubscriber
+LIB61850_API GooseSubscriber
 GooseSubscriber_create(char* goCbRef, MmsValue* dataSetValues);
 
-//char*
-//GooseSubscriber_getGoCbRef(GooseSubscriber self);
+/**
+ * \brief Get the GoId value of the received GOOSE message
+ *
+ * \param self GooseSubscriber instance to operate on.
+ */
+LIB61850_API char*
+GooseSubscriber_getGoId(GooseSubscriber self);
+
+/**
+ * \brief Get the GOOSE Control Block reference value of the received GOOSE message
+ *
+ * \param self GooseSubscriber instance to operate on.
+ */
+LIB61850_API char*
+GooseSubscriber_getGoCbRef(GooseSubscriber self);
+
+/**
+ * \brief Get the DatSet value of the received GOOSE message
+ *
+ * \param self GooseSubscriber instance to operate on.
+ */
+LIB61850_API char*
+GooseSubscriber_getDataSet(GooseSubscriber self);
+
+/**
+ * \brief set the destination mac address used by the subscriber to filter relevant messages.
+ *
+ * If dstMac is set the subscriber will ignore all messages with other dstMac values.
+ *
+ * \param self GooseSubscriber instance to operate on.
+ * \param dstMac the destination mac address
+ */
+LIB61850_API void
+GooseSubscriber_setDstMac(GooseSubscriber self, uint8_t dstMac[6]);
 
 /**
  * \brief set the APPID used by the subscriber to filter relevant messages.
@@ -79,9 +123,9 @@ GooseSubscriber_create(char* goCbRef, MmsValue* dataSetValues);
  * If APPID is set the subscriber will ignore all messages with other APPID values.
  *
  * \param self GooseSubscriber instance to operate on.
- * \param the APPID value the subscriber should use to filter messages
+ * \param appId the APPID value the subscriber should use to filter messages
  */
-void
+LIB61850_API void
 GooseSubscriber_setAppId(GooseSubscriber self, uint16_t appId);
 
 /**
@@ -91,10 +135,28 @@ GooseSubscriber_setAppId(GooseSubscriber self, uint16_t appId);
  * message were received with correct state and sequence ID.
  *
  */
-bool
+LIB61850_API bool
 GooseSubscriber_isValid(GooseSubscriber self);
 
-void
+/**
+ * \brief Get parse error in case of invalid subscriber state
+ *
+ * \param self GooseSubscriber instance to operate on.
+ *
+ * \return the error code representing a message parse problem of the last received message
+ */
+LIB61850_API GooseParseError
+GooseSubscriber_getParseError(GooseSubscriber self);
+
+/**
+ * \brief Destroy the GooseSubscriber instance
+ *
+ * Do not call this function when the GooseSubscriber instance was added to a GooseReceiver.
+ * The GooseReceiver will call the destructor when \ref GooseReceiver_destroy is called!
+ *
+ * \param self GooseSubscriber instance to operate on.
+ */
+LIB61850_API void
 GooseSubscriber_destroy(GooseSubscriber self);
 
 /**
@@ -104,8 +166,34 @@ GooseSubscriber_destroy(GooseSubscriber self);
  * \param listener user provided callback function
  * \param parameter a user provided parameter that will be passed to the callback function
  */
-void
+LIB61850_API void
 GooseSubscriber_setListener(GooseSubscriber self, GooseListener listener, void* parameter);
+
+/**
+ * \brief Get the APPID value of the received GOOSE message
+ *
+ * \param self GooseSubscriber instance to operate on.
+ */
+LIB61850_API int32_t
+GooseSubscriber_getAppId(GooseSubscriber self);
+
+/**
+ * \brief Get the source MAC address of the received GOOSE message
+ *
+ * \param self GooseSubscriber instance to operate on.
+ * \param buffer buffer to store the MAC address (at least 6 byte)
+ */
+LIB61850_API void
+GooseSubscriber_getSrcMac(GooseSubscriber self, uint8_t* buffer);
+
+/**
+ * \brief Get the destination MAC address of the received GOOSE message
+ *
+ * \param self GooseSubscriber instance to operate on.
+ * \param buffer buffer to store the MAC address (at least 6 byte)
+ */
+LIB61850_API void
+GooseSubscriber_getDstMac(GooseSubscriber self, uint8_t* buffer);
 
 /**
  * \brief return the state number (stNum) of the last received GOOSE message.
@@ -116,7 +204,7 @@ GooseSubscriber_setListener(GooseSubscriber self, GooseListener listener, void* 
  *
  * \return the state number of the last received GOOSE message
  */
-uint32_t
+LIB61850_API uint32_t
 GooseSubscriber_getStNum(GooseSubscriber self);
 
 /**
@@ -129,7 +217,7 @@ GooseSubscriber_getStNum(GooseSubscriber self);
  *
  * \return the sequence number of the last received GOOSE message
  */
-uint32_t
+LIB61850_API uint32_t
 GooseSubscriber_getSqNum(GooseSubscriber self);
 
 /**
@@ -141,7 +229,7 @@ GooseSubscriber_getSqNum(GooseSubscriber self);
  *
  * \return the state of the test flag of the last received GOOSE message.
  */
-bool
+LIB61850_API bool
 GooseSubscriber_isTest(GooseSubscriber self);
 
 /**
@@ -152,7 +240,7 @@ GooseSubscriber_isTest(GooseSubscriber self);
  * \return the confRev value of the last received GOOSE message. If the message does not contain such
  *         a value the result is always 0
  */
-uint32_t
+LIB61850_API uint32_t
 GooseSubscriber_getConfRev(GooseSubscriber self);
 
 /**
@@ -165,7 +253,7 @@ GooseSubscriber_getConfRev(GooseSubscriber self);
  * \return the state of the ndsCom flag of the last received GOOSE message.
  *
  */
-bool
+LIB61850_API bool
 GooseSubscriber_needsCommission(GooseSubscriber self);
 
 /**
@@ -175,7 +263,7 @@ GooseSubscriber_needsCommission(GooseSubscriber self);
  *
  * \return the TimeAllowedToLive value of the last received GOOSE message in milliseconds.
  */
-uint32_t
+LIB61850_API uint32_t
 GooseSubscriber_getTimeAllowedToLive(GooseSubscriber self);
 
 /**
@@ -185,7 +273,7 @@ GooseSubscriber_getTimeAllowedToLive(GooseSubscriber self);
  *
  * \return the timestamp value of the last received GOOSE message in milliseconds since epoch (1.1.1970 UTC).
  */
-uint64_t
+LIB61850_API uint64_t
 GooseSubscriber_getTimestamp(GooseSubscriber self);
 
 /**
@@ -199,9 +287,26 @@ GooseSubscriber_getTimestamp(GooseSubscriber self);
  *
  * \return MmsValue instance of the report data set
  */
-MmsValue*
+LIB61850_API MmsValue*
 GooseSubscriber_getDataSetValues(GooseSubscriber self);
 
+LIB61850_API bool
+GooseSubscriber_isVlanSet(GooseSubscriber self);
+
+LIB61850_API uint16_t
+GooseSubscriber_getVlanId(GooseSubscriber self);
+
+LIB61850_API uint8_t
+GooseSubscriber_getVlanPrio(GooseSubscriber self);
+
+/**
+ * \brief Configure the Subscriber to listen to any received GOOSE message
+ *
+ * NOTE: When the observer flag is set the subscriber also has access to the
+ * goCbRef, goId, and datSet values of the received GOOSE message
+ */
+LIB61850_API void
+GooseSubscriber_setObserver(GooseSubscriber self);
 #ifdef __cplusplus
 }
 #endif

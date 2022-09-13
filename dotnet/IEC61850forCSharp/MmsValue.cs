@@ -32,11 +32,10 @@ namespace IEC61850
 {
 	namespace Common
 	{
-
         /// <summary>
         /// This class is used to hold MMS data values of different types.
         /// </summary>
-		public class MmsValue : IEnumerable
+        public class MmsValue : IEnumerable, IDisposable
 		{
 			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
 			static extern IntPtr MmsValue_toString (IntPtr self);
@@ -58,16 +57,25 @@ namespace IEC61850
 			static extern bool MmsValue_getBoolean (IntPtr self);
 
 			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
+			static extern void MmsValue_setBoolean(IntPtr self, [MarshalAs(UnmanagedType.I1)] bool value);
+
+			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
 			static extern UInt32 MmsValue_getBitStringAsInteger (IntPtr self);
 
 			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
 			static extern void MmsValue_setBitStringFromInteger(IntPtr self, UInt32 intValue);
 
-			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
+            [DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
+            static extern UInt32 MmsValue_getBitStringAsIntegerBigEndian(IntPtr self);
+
+            [DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
+            static extern void MmsValue_setBitStringFromIntegerBigEndian(IntPtr self, UInt32 intValue);
+
+            [DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
 			static extern int MmsValue_getBitStringSize(IntPtr self);
 
 			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
-			static extern void MmsValue_setBitStringBit(IntPtr self, int bitPos, bool value);
+			static extern void MmsValue_setBitStringBit(IntPtr self, int bitPos, [MarshalAs(UnmanagedType.I1)] bool value);
 
 			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
             [return: MarshalAs(UnmanagedType.I1)]
@@ -75,6 +83,9 @@ namespace IEC61850
 
 			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
 			static extern Int32 MmsValue_toInt32 (IntPtr self);
+
+			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
+			static extern void MmsValue_setInt32(IntPtr self, int value);			
 
 			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
 			static extern Int64 MmsValue_toInt64 (IntPtr self);
@@ -113,7 +124,7 @@ namespace IEC61850
 			static extern UInt32 MmsValue_toUnixTimestamp (IntPtr self);
 
 			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
-			static extern IntPtr MmsValue_newBoolean (bool value);
+			static extern IntPtr MmsValue_newBoolean ([MarshalAs(UnmanagedType.I1)] bool value);
 
 			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
 			static extern IntPtr MmsValue_newFloat (float value);
@@ -137,6 +148,21 @@ namespace IEC61850
             static extern IntPtr MmsValue_newVisibleString(string value);
 
 			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
+			static extern IntPtr MmsValue_newVisibleStringWithSize(int size);
+
+			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
+			static extern void MmsValue_setVisibleString(IntPtr self, string value);
+
+			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
+			static extern IntPtr MmsValue_createArray(IntPtr elementType, int size);
+
+			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
+			static extern IntPtr MmsValue_createEmptyArray(int size);
+
+			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
+			static extern IntPtr MmsValue_createEmptyStructure(int size);
+
+			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
 			static extern IntPtr MmsValue_newOctetString(int size, int maxSize);
 
 			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
@@ -148,7 +174,13 @@ namespace IEC61850
 			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
 			static extern UInt16 MmsValue_getOctetStringMaxSize(IntPtr self);
 
-			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
+            [DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
+            static extern byte MmsValue_getOctetStringOctet(IntPtr self, int pos);
+
+            [DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
+            static extern void MmsValue_setOctetStringOctet(IntPtr self, int pos, byte value);
+
+            [DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
 			static extern IntPtr MmsValue_getOctetStringBuffer(IntPtr self);
 
             [DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
@@ -156,7 +188,7 @@ namespace IEC61850
             static extern bool MmsValue_equals(IntPtr self, IntPtr otherValue);
 
 			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
-			static extern IntPtr MmsValue_newBinaryTime (bool timeOfDay);
+			static extern IntPtr MmsValue_newBinaryTime ([MarshalAs(UnmanagedType.I1)] bool timeOfDay);
 
 			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
 			static extern void MmsValue_setBinaryTime (IntPtr self, UInt64 timestamp);
@@ -164,15 +196,26 @@ namespace IEC61850
 			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
 			static extern ulong MmsValue_getBinaryTimeAsUtcMs (IntPtr self);
 
-			[DllImport ("iec61850", CallingConvention=CallingConvention.Cdecl)]
+            [DllImport ("iec61850", CallingConvention = CallingConvention.Cdecl)]
+            static extern IntPtr MmsValue_newUtcTimeByMsTime (UInt64 timestamp);
+
+            [DllImport("iec61850", CallingConvention=CallingConvention.Cdecl)]
 			static extern int MmsValue_getDataAccessError(IntPtr self);
+
+			[DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
+			static extern void MmsValue_setElement(IntPtr complexValue, int index, IntPtr elementValue);
+
+            [DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
+            static extern IntPtr MmsVariableSpecification_getChildValue(IntPtr self, IntPtr value, string childId);
+
+            [DllImport("iec61850", CallingConvention = CallingConvention.Cdecl)]
+            static extern IntPtr MmsValue_clone(IntPtr self);
 
 			internal IntPtr valueReference; /* reference to native MmsValue instance */
 
-			private bool responsableForDeletion; /* if .NET wrapper is responsable for the deletion of the native MmsValue instance */
+			private bool responsableForDeletion = false; /* if .NET wrapper is responsable for the deletion of the native MmsValue instance */
 
-			// TODO make internal
-			public MmsValue (IntPtr value)
+			internal MmsValue (IntPtr value)
 			{
 				valueReference = value;
 				this.responsableForDeletion = false;
@@ -214,16 +257,32 @@ namespace IEC61850
 				valueReference = MmsValue_newIntegerFromInt64 (value);
 			}
 
+			/// <summary>
+			/// Create a new <see cref="IEC61850.Common.MmsValue"/> instance of type MMS_VISIBLE_STRING.
+			/// </summary>
+			/// <param name="value">Value.</param>
             public MmsValue (string value)
             {
                 valueReference = MmsValue_newVisibleString(value);
             }
 
-			~MmsValue ()
-			{
-				if (responsableForDeletion)
-					MmsValue_delete (valueReference);
-			}
+            public void Dispose()
+            {
+                lock (this) {
+                    if (valueReference != IntPtr.Zero) {
+
+                        if (responsableForDeletion)
+                            MmsValue_delete (valueReference);
+
+                        valueReference = IntPtr.Zero;
+                    }
+                }
+            }
+
+            ~MmsValue ()
+            {
+                Dispose();
+            }
 
 			/// <summary>
 			/// Create a new MmsValue instance of type MMS_BIT_STRING.
@@ -271,6 +330,53 @@ namespace IEC61850
 			}
 
 			/// <summary>
+			/// Create a new MmsValue instance of type MMS_ARRAY. Array elements have the fiven type
+			/// </summary>
+			/// <returns>the newly created array</returns>
+			/// <param name="elementType">array element type</param>
+			/// <param name="size">number of array elements</param>
+			public static MmsValue NewArray(MmsVariableSpecification elementType, int size)
+			{
+				if (size < 1)
+					throw new MmsValueException ("array requires at least one element");
+
+				IntPtr newValue = MmsValue_createArray (elementType.self, size);
+
+				return new MmsValue (newValue, true);
+			}
+
+			/// <summary>
+			/// Create a new MmsValue instance of type MMS_ARRAY. Array elements are not initialized!
+			/// </summary>
+			/// <returns>the newly created array</returns>
+			/// <param name="size">number of array elements</param>
+			public static MmsValue NewEmptyArray(int size)
+			{
+				if (size < 1)
+					throw new MmsValueException ("array requires at least one element");
+
+				IntPtr newValue = MmsValue_createEmptyArray (size);
+
+				return new MmsValue (newValue, true);
+			}
+
+			/// <summary>
+			/// Create a new MmsValue instance of type MMS_STRUCTURE. Structure elements are not initialized!
+			/// </summary>
+			/// <returns>the newly created array</returns>
+			/// <param name="size">number of structure elements</param>
+			public static MmsValue NewEmptyStructure(int size)
+			{
+				if (size < 1)
+					throw new MmsValueException ("structure requires at least one element");
+
+				IntPtr newValue = MmsValue_createEmptyStructure (size);
+
+				return new MmsValue (newValue, true);
+			}
+		
+
+			/// <summary>
 			/// Create a new MmsValue instance of type MMS_BINARY_TIME
 			/// </summary>
 			/// <returns>the new MmsValue instance.</returns>
@@ -310,12 +416,45 @@ namespace IEC61850
 			}
 
             /// <summary>
-            /// Gets the type of the value
+            /// Create a new MmsValue instance of type MMS_UTC_TIME
             /// </summary>
-            /// <returns>
-            /// The type.
-            /// </returns>
-			public new MmsType GetType ()
+            /// <returns>the new MmsValue instance.</returns>
+            /// <param name="timestamp">the time value as milliseconds since epoch (1.1.1970 UTC).</param>
+            public static MmsValue NewUtcTime (UInt64 timestamp)
+            {
+                IntPtr newValue = MmsValue_newUtcTimeByMsTime (timestamp);
+
+                return new MmsValue (newValue, true);
+            }
+
+			/// <summary>
+            /// Create a new MmsValue instance of type MMS_VISIBLE_STRING - empty string with given maximum size
+            /// </summary>
+            /// <param name="size">The maximum size </param>
+            /// <returns></returns>
+			public static MmsValue NewVisibleString(int size, bool responsibleForDeletion = false)
+            {
+				IntPtr newValue = MmsValue_newVisibleStringWithSize(size);
+
+				return new MmsValue(newValue, responsibleForDeletion);
+            }
+
+			/// <summary>
+            /// Set the value of an MmsValue instance of type MMS_VISIBLE_STRING
+            /// </summary>
+            /// <param name="value">the new string value</param>
+			public void SetVisibleString(string value)
+            {
+				MmsValue_setVisibleString(valueReference, value);
+            }
+
+		    /// <summary>
+		    /// Gets the type of the value
+		    /// </summary>
+		    /// <returns>
+		    /// The type.
+		    /// </returns>
+		    public new MmsType GetType ()
 			{
 				return (MmsType)MmsValue_getType (valueReference);
 			}
@@ -385,6 +524,11 @@ namespace IEC61850
 					throw new MmsValueException ("Operation not supported for this type");
 			}
 
+            /// <summary>
+            /// Sets the value of an octet string by a byte array
+            /// </summary>
+            /// <param name="octetString">Byte array containing the bytes of the octet string.</param>
+            /// <exception cref="MmsValueException">This exception is thrown if the value has the wrong type or the byte array is too large.</exception>
 			public void setOctetString (byte[] octetString)
 			{
 				if (GetType () == MmsType.MMS_OCTET_STRING) {
@@ -397,6 +541,26 @@ namespace IEC61850
 				else
 					throw new MmsValueException ("Operation not supported for this type");
 			}
+
+            /// <summary>
+            /// Gets the octet string octet.
+            /// </summary>
+            /// <returns>The octet string octet.</returns>
+            /// <param name="pos">Position of the octet in the octet string.</param>
+            public byte GetOctetStringOctet(int pos)
+            {
+                return MmsValue_getOctetStringOctet(valueReference, pos);
+            }
+
+            /// <summary>
+            /// Sets the octet string octet.
+            /// </summary>
+            /// <param name="pos">Position of the octet in the octet string.</param>
+            /// <param name="value">The octet string octet.</param>
+            public void SetOctetStringOctet(int pos, byte value)
+            {
+                MmsValue_setOctetStringOctet(valueReference, pos, value);
+            }
 
             /// <summary>
             /// Get an element of an array or structure
@@ -427,17 +591,60 @@ namespace IEC61850
 					throw new MmsValueException ("Value is of wrong type");
 			}
 
+            /// <summary>
+            /// Sets the element of an array or structure
+            /// </summary>
+            /// <remarks>
+            /// After calling this function the native memory of the element will be managed by the array or structure. 
+            /// Therefore an element can only be used in a single array or structure. 
+            /// When the value is required in multiple arrays or structures
+            /// a clone has to be created before using this function!
+            /// To be save, always use a clone for setting the element.
+            /// </remarks>
+            /// <param name="index">index of the element starting with 0</param>
+            /// <param name="elementValue">MmsValue instance that will be used as element value</param>
+            /// <exception cref="MmsValueException">This exception is thrown if the value has the wrong type.</exception>
+            /// <exception cref="MmsValueException">This exception is thrown if the index is out of range.</exception>
+            public void SetElement(int index, MmsValue elementValue)
+            {
+                MmsType elementType = GetType();
 
-			public MmsDataAccessError GetDataAccessError ()
-			{
-				if (GetType () == MmsType.MMS_DATA_ACCESS_ERROR) {
-					int errorCode = MmsValue_getDataAccessError (valueReference);
+                if ((elementType == MmsType.MMS_ARRAY) || (elementType == MmsType.MMS_STRUCTURE))
+                {
 
-					return (MmsDataAccessError)errorCode;
-				}
-				else
-					throw new MmsValueException ("Value is of wrong type");
-			}
+                    if ((index >= 0) && (index < Size()))
+                    {
+
+                        if (elementValue != null)
+                        {
+                            MmsValue_setElement(valueReference, index, elementValue.valueReference);
+
+                            /* will be deleted by structure */
+                            elementValue.responsableForDeletion = false;
+                        }
+                        else
+                            MmsValue_setElement(valueReference, index, IntPtr.Zero);
+
+                    }
+                    else
+                        throw new MmsValueException("Index out of bounds");
+
+                }
+                else
+                    throw new MmsValueException("Value is of wrong type");
+            }
+
+            public MmsDataAccessError GetDataAccessError()
+            {
+                if (GetType() == MmsType.MMS_DATA_ACCESS_ERROR)
+                {
+                    int errorCode = MmsValue_getDataAccessError(valueReference);
+
+                    return (MmsDataAccessError)errorCode;
+                }
+                else
+                    throw new MmsValueException("Value is of wrong type");
+            }
 
             /// <summary>
             /// Gets the timestamp value as UTC time in s (UNIX time stamp).
@@ -613,17 +820,32 @@ namespace IEC61850
 				return MmsValue_toInt32 (valueReference);
 			}
 
-            /// <summary>
-            /// Return the value as 64 bit signed integer.
-            /// </summary>
-            /// <description>
-            /// Return the value as 64 bit signed integer (Int64).
-            /// The value has to be of type MMS_INTEGER.
-            /// </description>
-            /// <returns>
-            /// the value if the object as 64 bit signed integer
-            /// </returns>
-            /// <exception cref="MmsValueException">This exception is thrown if the value has the wrong type.</exception>
+			/// <summary>
+			/// Sets the 32 bit signed integer.
+			/// </summary>
+			/// <param name='value'>
+			/// the new value to set
+			/// </param>
+			/// <exception cref="MmsValueException">This exception is thrown if the value has the wrong type.</exception>
+			public void SetInt32(int value)
+			{
+				if (GetType() != MmsType.MMS_INTEGER)
+					throw new MmsValueException("Value type is not integer");
+
+				MmsValue_setInt32(valueReference, value);
+			}
+
+			/// <summary>
+			/// Return the value as 64 bit signed integer.
+			/// </summary>
+			/// <description>
+			/// Return the value as 64 bit signed integer (Int64).
+			/// The value has to be of type MMS_INTEGER.
+			/// </description>
+			/// <returns>
+			/// the value if the object as 64 bit signed integer
+			/// </returns>
+			/// <exception cref="MmsValueException">This exception is thrown if the value has the wrong type.</exception>
 			public Int64 ToInt64 ()
 			{
 				if (GetType () != MmsType.MMS_INTEGER)
@@ -667,7 +889,23 @@ namespace IEC61850
 				MmsValue_setBitStringFromInteger(valueReference, intValue);
 			}
 
-			public void SetBit (int bitPos, bool bitValue)
+            public UInt32 BitStringToUInt32BigEndian()
+            {
+                if (GetType() != MmsType.MMS_BIT_STRING)
+                    throw new MmsValueException("Value type is not bit string");
+
+                return MmsValue_getBitStringAsIntegerBigEndian(valueReference);
+            }
+
+            public void BitStringFromUInt32BigEndian(UInt32 intValue)
+            {
+                if (GetType() != MmsType.MMS_BIT_STRING)
+                    throw new MmsValueException("Value type is not bit string");
+
+                MmsValue_setBitStringFromIntegerBigEndian(valueReference, intValue);
+            }
+
+            public void SetBit (int bitPos, bool bitValue)
 			{
 				if (GetType () != MmsType.MMS_BIT_STRING)
 					throw new MmsValueException("Value type is not bit string");
@@ -718,13 +956,28 @@ namespace IEC61850
 					throw new MmsValueException ("Value type is not boolean");
 			}
 
-            /// <summary>
-            /// Gets the float value of an MMS_FLOAT instance
-            /// </summary>
-            /// <returns>
-            /// The float value
-            /// </returns>
-            /// <exception cref="MmsValueException">This exception is thrown if the value has the wrong type.</exception>
+			/// <summary>
+			/// Sets the boolean value of an MMS_BOOLEAN instance
+			/// </summary>
+			/// <param name='value'>
+			/// the new value to set
+			/// </param>
+			/// <exception cref="MmsValueException">This exception is thrown if the value has the wrong type.</exception>
+			public void SetBoolean(bool value)
+			{
+				if (GetType() != MmsType.MMS_BOOLEAN)
+					throw new MmsValueException("Value type is not boolean");
+
+				MmsValue_setBoolean(valueReference, value);
+			}
+
+			/// <summary>
+			/// Gets the float value of an MMS_FLOAT instance
+			/// </summary>
+			/// <returns>
+			/// The float value
+			/// </returns>
+			/// <exception cref="MmsValueException">This exception is thrown if the value has the wrong type.</exception>
 			public float ToFloat ()
 			{
 				if (GetType () == MmsType.MMS_FLOAT)
@@ -778,6 +1031,41 @@ namespace IEC61850
 					throw new MmsValueException ("Value type is not float");
 			}
 
+            /// <summary>
+            /// Gets the child value with the given name 
+            /// </summary>
+            /// <returns>the child value or null if no matching child has been found.</returns>
+            /// <param name="childPath">path specifying the child using '.' or '$' as path element separator.</param>
+            /// <param name="specification">the variable specification to use.</param>
+            public MmsValue GetChildValue(string childPath, MmsVariableSpecification specification)
+            {
+                StringBuilder childPathStr = new StringBuilder(childPath);
+
+                childPathStr.Replace('.', '$');
+
+                IntPtr childPtr = MmsVariableSpecification_getChildValue(specification.self, valueReference, childPathStr.ToString());
+
+                if (childPtr == IntPtr.Zero)
+                    return null;
+                else
+                {
+                    return new MmsValue(childPtr);
+                }
+            }
+
+            /// <summary>
+            /// Get an identical copy of this instance
+            /// </summary>
+            public MmsValue Clone()
+            {
+                IntPtr clonePtr = MmsValue_clone(valueReference);
+
+                if (clonePtr == IntPtr.Zero)
+                    return null;
+
+                return new MmsValue(clonePtr, true);
+            }
+
             public override bool Equals (object obj)
             {
                 MmsValue otherValue = (MmsValue) obj;
@@ -828,9 +1116,31 @@ namespace IEC61850
 
 						return retString;
 					}
+                case MmsType.MMS_ARRAY:
+                    {
+                        string retString = "[";
+
+                        bool first = true;
+
+                        foreach (MmsValue element in this) {
+                            if (first) {
+                                retString += element.ToString ();
+
+                                first = false;
+                            } else {
+                                retString += ", " + element.ToString ();
+                            }
+                        }
+
+                        retString += "]";
+
+                        return retString;
+                    }
+                case MmsType.MMS_DATA_ACCESS_ERROR:
+                    return "error: " + GetDataAccessError().ToString();
 
 				default:
-					return "unknown";
+                    return "unknown (type:" + GetType().ToString() + ")";
 				}
 			}
 
